@@ -127,6 +127,11 @@
     timer: null, poll: null, pushing: false, again: false,
     error: "", dirty: false,
 
+    // who last changed each field, and when (powers the "recent activity" feed)
+    meta: (() => { try { return JSON.parse(localStorage.getItem("boonboo-meta")) || {}; } catch { return {}; } })(),
+    note(c) { if (c.by) this.meta[c.path] = { by: c.by, at: c.updated_at || Date.now() }; },
+    saveMeta() { try { localStorage.setItem("boonboo-meta", JSON.stringify(this.meta)); } catch { /* ignore */ } },
+
     readLink() { try { return JSON.parse(localStorage.getItem(LINK_KEY)) || {}; } catch { return {}; } },
     writeLink() { try { localStorage.setItem(LINK_KEY, JSON.stringify({ key: this.key, me: this.me })); } catch { /* ignore */ } },
 
@@ -159,12 +164,12 @@
     async first(data) {
       this.cursor = 0; this.base = {};
       for (;;) {
-        for (const c of data.changes) { applyPath(c.path, c.value); this.base[c.path] = c.value; }
+        for (const c of data.changes) { applyPath(c.path, c.value); this.base[c.path] = c.value; this.note(c); }
         this.cursor = data.cursor;
         if (!data.more) break;
         data = await (await this.api("changes?since=" + this.cursor)).json();
       }
-      saveLocal();
+      saveLocal(); this.saveMeta();
       this.setMode("online");
       render();
       await this.push();
@@ -184,12 +189,13 @@
       const local = flatten(S), changed = [];
       for (const c of data.changes) {
         const unsent = local[c.path] !== this.base[c.path];   // you edited it and it hasn't been saved yet
-        this.base[c.path] = c.value;
+        this.base[c.path] = c.value; this.note(c);
         if (unsent || local[c.path] === c.value) continue;
         applyPath(c.path, c.value); changed.push(c.path);
       }
       this.cursor = data.cursor;
       if (this.mode === "offline") this.setMode("online");
+      this.saveMeta();
       if (changed.length) { saveLocal(); showRemote(changed); }
       if (data.more) this.pull();
     },
@@ -212,7 +218,8 @@
           const r = await this.api("patch", { method: "POST", body: JSON.stringify({ by: this.me, changes: part }) });
           if (r.status === 401) { this.pushing = false; this.setMode("locked"); return render(true); }
           if (!r.ok) throw new Error(r.status);
-          for (const c of part) this.base[c.path] = c.value;
+          for (const c of part) { this.base[c.path] = c.value; this.note({ path: c.path, by: this.me, updated_at: Date.now() }); }
+          this.saveMeta();
         }
         this.setMode("online");
       } catch {
@@ -463,6 +470,7 @@
         <p class="muted" style="margin-top:12px">Every piece is one phase, mending from the top down. Do the work together and watch the halves come back together. Tap a piece to jump in.</p>
       </div>
       <div class="stack">
+        ${growthCard()}
         <div class="card">
           <div class="eyebrow">Who's in</div>
           <div class="grid2" style="gap:12px;margin-top:8px">
@@ -660,6 +668,168 @@
     </section>`;
   }
 
+
+  /* ---------------- growth & analytics ---------------- */
+  const SCORE = { done: 1, partial: 0.5, missed: 0 };
+  const SERIES = { a: "#f0209f", b: "#0aa0d8" };   // validated pair (dark surface, CVD-safe)
+  const other = (p) => (p === "a" ? "b" : "a");
+  let localViewer = (() => { try { return localStorage.getItem("boonboo-viewer") || "a"; } catch { return "a"; } })();
+  const viewer = () => Sync.me || localViewer;
+  const avg = (xs) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
+  const marked = (cells) => cells.filter((c) => c in SCORE).map((c) => SCORE[c]);
+  const weekRate = (p, w) => avg(marked(S.track[p].map((row) => row[w])));
+  const goalRate = (p, i) => avg(marked(S.track[p][i]));
+  const allRate = (p) => avg(marked(S.track[p].flat()));
+  const pctOr = (x, dash = "—") => (x == null ? dash : pct(x) + "%");
+  function thisWeek() { const d = cycleDay(); return d ? Math.min(Math.ceil(d / 7), WEEKS) - 1 : 0; }
+  function streak(p) { // consecutive weeks (ending with the latest marked week) at 75%+
+    let n = 0;
+    for (let w = WEEKS - 1; w >= 0; w--) { const r = weekRate(p, w); if (r == null) { if (n) break; continue; } if (r >= 0.75) n++; else break; }
+    return n;
+  }
+  const countFilled = (xs) => xs.filter(filled).length;
+  const reviewsDone = (p) => S.review.filter((w) => w[p].filter(filled).length >= 3).length;
+
+  function lineChart() {
+    const W = 400, H = 210, L = 40, R = 58, T = 16, B = 30;
+    const x = (w) => L + (w * (W - L - R)) / (WEEKS - 1);
+    const y = (v) => T + (1 - v) * (H - T - B);
+    const grid = [0, 0.5, 1].map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="rgba(255,255,255,.12)"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end" class="ax">${v * 100}%</text>`).join("");
+    const xs = arr(WEEKS, (w) => `<text x="${x(w)}" y="${H - 10}" text-anchor="middle" class="ax">W${w + 1}</text>`).join("");
+    const lines = P.map((p) => {
+      const pts = arr(WEEKS, (w) => [w, weekRate(p, w)]).filter(([, v]) => v != null);
+      if (!pts.length) return "";
+      const d = pts.map(([w, v], i) => `${i ? "L" : "M"}${x(w)},${y(v)}`).join(" ");
+      const dots = pts.map(([w, v]) => `<circle cx="${x(w)}" cy="${y(v)}" r="5" fill="${SERIES[p]}" stroke="#140630" stroke-width="2"/>
+        <circle cx="${x(w)}" cy="${y(v)}" r="16" fill="transparent" data-tip="${name(p)} · Week ${w + 1}: ${pct(v)}% followed through"/>`).join("");
+      const [lw, lv] = pts[pts.length - 1];
+      return `<path d="${d}" fill="none" stroke="${SERIES[p]}" stroke-width="2" stroke-linejoin="round" ${p === "b" ? 'stroke-dasharray="6 4"' : ""}/>${dots}
+        <text x="${x(lw) + 10}" y="${y(lv) + (p === "a" ? -6 : 14)}" class="lbl">${name(p)}</text>`;
+    }).join("");
+    const empty = P.every((p) => allRate(p) == null);
+    return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Weekly follow-through for both partners">${grid}${xs}${lines}
+      ${empty ? `<text x="${(W + L - R) / 2}" y="${H / 2}" text-anchor="middle" class="ax">Mark squares in the tracker to see your growth</text>` : ""}</svg>`;
+  }
+  const legend = () => `<div class="legend">${P.map((p) => `<span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="${SERIES[p]}" stroke-width="2" ${p === "b" ? 'stroke-dasharray="6 4"' : ""}/></svg>${name(p)}</span>`).join("")}</div>`;
+  const chartTable = () => `<details class="tbl"><summary>Show as table</summary><table><thead><tr><th></th>${arr(WEEKS, (w) => `<th>W${w + 1}</th>`).join("")}</tr></thead>
+    <tbody>${P.map((p) => `<tr><td>${name(p)}</td>${arr(WEEKS, (w) => `<td>${pctOr(weekRate(p, w))}</td>`).join("")}</tr>`).join("")}</tbody></table></details>`;
+
+  function statTiles(p) {
+    const wk = thisWeek();
+    return `<div class="tiles">
+      <div class="tile"><div class="tv">${pctOr(allRate(p))}</div><div class="tl">follow-through overall</div></div>
+      <div class="tile"><div class="tv">${pctOr(weekRate(p, wk))}</div><div class="tl">this week (W${wk + 1})</div></div>
+      <div class="tile"><div class="tv">${streak(p)}</div><div class="tl">week streak at 75%+</div></div>
+      <div class="tile"><div class="tv">${reviewsDone(p)}/${WEEKS}</div><div class="tl">Sunday reviews</div></div>
+    </div>`;
+  }
+
+  function label(path) {
+    const k = path.split("."), n = (i) => Number(k[i]) + 1;
+    switch (k[0]) {
+      case "rules": return "agreed to a ground rule";
+      case "talk": return k[2] ? `answered “${TALK_Q[k[2]]}”` : "updated the honest conversation";
+      case "goals": return k[3] === "measurable" ? `made goal ${n(2)} measurable` : `updated goal ${n(2)}`;
+      case "track": return k[1] === "notes" ? `wrote week ${n(2)} notes` : `marked goal ${n(2)}, week ${n(3)}: ${{ done: "✓ done", partial: "~ partly", missed: "✕ missed", "": "cleared" }[get(path)] ?? "updated"}`;
+      case "rewards": return k[1] === "appreciate" ? "shared an appreciation 💗" : k[1] === "earned" || k[1] === "monthlyEarned" ? "marked a reward earned ★" : "updated the rewards";
+      case "review": return `wrote their Sunday review (week ${n(1)})`;
+      case "evaluate": return "answered the 30-day evaluation";
+      case "names": return "changed the names";
+      case "startDate": return "started the 30 days";
+      default: return "made an update";
+    }
+  }
+  function ago(t) {
+    const s = Math.max(1, Math.round((Date.now() - t) / 1000));
+    if (s < 60) return "just now"; if (s < 3600) return Math.round(s / 60) + " min ago";
+    if (s < 86400) return Math.round(s / 3600) + " h ago"; return Math.round(s / 86400) + " d ago";
+  }
+  function feed(p, limit = 8) {
+    const items = Object.entries(Sync.meta).filter(([, m]) => m.by === p).sort((a, b) => b[1].at - a[1].at);
+    const out = []; const seen = new Set();
+    for (const [path, m] of items) { const l = label(path); if (seen.has(l)) continue; seen.add(l); out.push(`<li><span>${esc(l)}</span><span class="muted">${ago(m.at)}</span></li>`); if (out.length >= limit) break; }
+    if (!out.length) return `<p class="muted">${Sync.mode === "local" ? "Activity shows here once you're both connected." : `Nothing from ${name(p)} yet.`}</p>`;
+    return `<ul class="feed">${out.join("")}</ul>`;
+  }
+
+  function growthCard() {
+    const me = viewer(), them = other(me);
+    return `<div class="card"><div class="row" style="justify-content:space-between"><div class="eyebrow">Our growth</div><a class="btn ghost sm" href="#us">All insights →</a></div>
+      <div class="duo">${P.map((p) => `<div><div class="person-tag" style="font-size:16px;margin:0"><span class="dot ${p}"></span>${name(p)}</div><div class="tv">${pctOr(allRate(p))}</div><div class="tl">follow-through · ${streak(p)} wk streak</div></div>`).join("")}</div>
+      ${legend()}${lineChart()}
+      <h3 style="margin-top:12px">Latest from ${name(them)}</h3>${feed(them, 3)}
+    </div>`;
+  }
+
+  const viewerSwitch = () => Sync.me ? "" :
+    `<div class="row" style="margin-bottom:14px"><span class="muted">Viewing as</span><div class="seg">${P.map((p) => `<button class="${viewer() === p ? "on" : ""}" data-viewer="${p}">${name(p)}</button>`).join("")}</div></div>`;
+
+  views.me = () => {
+    const p = viewer(), wk = thisWeek(), them = other(p);
+    const goals = S.goals[p];
+    const lastReview = [...S.review].map((r, w) => [r, w]).reverse().find(([r]) => r[p].some(filled));
+    return `
+    ${viewerSwitch()}
+    <div class="phase-head"><div><div class="eyebrow">My space</div><h1>Hi ${name(p)} 👋</h1><p class="lead">Your goals and this week's follow-through. Tap a button each time you act on a goal.</p></div>
+      <a class="btn" href="#us">See ${name(them)}'s growth →</a></div>
+    ${statTiles(p)}
+    <div class="card" style="margin-top:18px"><div class="row" style="justify-content:space-between"><h2 style="margin:0">${meWeek(wk) === wk ? "This week" : "Looking back"} · Week ${meWeek(wk) + 1}</h2>
+      <div class="seg">${arr(WEEKS, (w) => `<button class="${w === meWeek(wk) ? "on" : ""}" data-meweek="${w}">W${w + 1}</button>`).join("")}</div></div>
+      ${goals.map((g, i) => {
+        const c = S.track[p][i][meWeek(wk)];
+        return `<div class="mygoal"><div><div class="eyebrow" style="color:var(--sun)">Goal ${i + 1}</div>
+          <div class="gt">${esc(g.measurable || g.what) || `<a href="#goals">Write this goal →</a>`}</div>
+          <div class="muted" style="font-size:14px">${[g.freq, g.proof && "Proof: " + g.proof].filter(filled).map(esc).join(" · ")}</div></div>
+          <div class="seg big">${["done", "partial", "missed"].map((v) => `<button class="${c === v ? "on " + v : ""}" data-set="track.${p}.${i}.${meWeek(wk)}" data-val="${v}" aria-label="${v}">${CELL[v]}</button>`).join("")}</div></div>`;
+      }).join("")}
+      <p class="muted" style="font-size:14px;margin:8px 0 0">Goal ${goals.map((_, i) => `${i + 1}: ${pctOr(goalRate(p, i))}`).join(" · ")} across all weeks.</p>
+    </div>
+    <div class="grid2" style="margin-top:18px">
+      <div class="card"><h3>What ${name(them)} appreciates about me</h3>
+        ${S.rewards.appreciate[them].some(filled) ? `<ul class="ritual">${S.rewards.appreciate[them].filter(filled).map((a) => `<li>${esc(a)}</li>`).join("")}</ul>` : `<p class="muted">Nothing yet.</p>`}</div>
+      <div class="card"><h3>My last Sunday review${lastReview ? ` · Week ${lastReview[1] + 1}` : ""}</h3>
+        ${lastReview ? REVIEW_Q.map((q, i) => filled(lastReview[0][p][i]) ? `<p><strong>${q}</strong><br>${esc(lastReview[0][p][i])}</p>` : "").join("") : `<p class="muted">Not yet. <a href="#review">Do this week's reset →</a></p>`}</div>
+    </div>`;
+  };
+  let meWeekPick = null;
+  const meWeek = (wk) => (meWeekPick == null ? wk : meWeekPick);
+
+  views.us = () => {
+    const me = viewer(), them = other(me);
+    const t = S.talk[them], g = S.goals[them];
+    const lastReview = [...S.review].map((r, w) => [r, w]).reverse().find(([r]) => r[them].some(filled));
+    const ev = S.evaluate[them];
+    const VERD = { yes: "Yes", growing: "Getting there", no: "Not yet" };
+    const goalBars = (p) => S.goals[p].map((gg, i) => {
+      const r = goalRate(p, i);
+      return `<div class="gbar" data-tip="${name(p)} · Goal ${i + 1}: ${pctOr(r, "not tracked yet")}"><div class="gl"><span>${esc(gg.measurable || gg.what) || `Goal ${i + 1}`}</span><span>${pctOr(r)}</span></div>
+        <div class="track"><i style="width:${r == null ? 0 : pct(r)}%;background:${SERIES[p]}"></i></div></div>`;
+    }).join("");
+    return `
+    ${viewerSwitch()}
+    <div class="phase-head"><div><div class="eyebrow">Insights</div><h1>Our growth</h1><p class="lead">How you're both following through, and everything ${name(them)} has shared.</p></div></div>
+    <div class="card"><h2>Weekly follow-through</h2><p class="muted" style="font-size:14px">✓ counts 100%, ~ counts 50%, ✕ counts 0%. Only marked squares count.</p>
+      ${legend()}${lineChart()}${chartTable()}</div>
+    <div class="grid2" style="margin-top:18px">
+      ${P.map((p) => `<div class="card">${tag(p)}${statTiles(p)}<h3 style="margin-top:16px">By goal</h3>${goalBars(p)}</div>`).join("")}
+    </div>
+    <div class="grid2" style="margin-top:18px">
+      <div class="card"><h2>Recent from ${name(them)}</h2>${feed(them)}</div>
+      <div class="card"><h2>${name(them)}'s goals</h2>
+        ${g.map((gg, i) => `<p><strong>Goal ${i + 1}:</strong> ${esc(gg.measurable || gg.what) || '<span class="muted">not written yet</span>'}${filled(gg.freq) ? `<br><span class="muted">${esc(gg.freq)}${filled(gg.proof) ? " · Proof: " + esc(gg.proof) : ""}</span>` : ""}</p>`).join("")}</div>
+    </div>
+    <div class="card" style="margin-top:18px"><h2>${name(them)}'s responses</h2>
+      <details open><summary>Latest Sunday review${lastReview ? ` · Week ${lastReview[1] + 1}` : ""}</summary>
+        ${lastReview ? REVIEW_Q.map((q, i) => filled(lastReview[0][them][i]) ? `<p><strong>${q}</strong><br>${esc(lastReview[0][them][i])}</p>` : "").join("") : `<p class="muted">No review yet.</p>`}</details>
+      <details><summary>Honest conversation</summary>
+        ${t.some(filled) ? TALK_Q.map((q, i) => filled(t[i]) ? `<p><strong>${q}</strong><br>${esc(t[i])}</p>` : "").join("") : `<p class="muted">No answers yet.</p>`}</details>
+      <details><summary>Appreciations for ${name(me)}</summary>
+        ${S.rewards.appreciate[them].some(filled) ? `<ul class="ritual">${S.rewards.appreciate[them].filter(filled).map((a) => `<li>${esc(a)}</li>`).join("")}</ul>` : `<p class="muted">None yet.</p>`}</details>
+      <details><summary>30-day evaluation</summary>
+        ${ev.some((e) => e.score) ? EVAL_Q.map((q, i) => ev[i].score ? `<p><strong>${q}</strong><br><span class="verdict ${ev[i].score}">${VERD[ev[i].score]}</span> ${esc(ev[i].note)}</p>` : "").join("") : `<p class="muted">Not answered yet.</p>`}</details>
+    </div>`;
+  };
+
   /* ---------------- routing / render ---------------- */
   function route() { const h = location.hash.slice(1); return views[h] ? h : "dashboard"; }
 
@@ -667,6 +837,8 @@
     const cur = route();
     document.getElementById("nav").innerHTML =
       `<a class="pill" href="#dashboard" ${cur === "dashboard" ? 'aria-current="page"' : ""} style="--p:${overall()}"><span class="num">♥</span>Heart</a>` +
+      `<a class="pill" href="#me" ${cur === "me" ? 'aria-current="page"' : ""}><span class="num">★</span>Me</a>` +
+      `<a class="pill" href="#us" ${cur === "us" ? 'aria-current="page"' : ""}><span class="num">↗</span>Us</a>` +
       PHASES.map((ph) => `<a class="pill" href="#${ph.id}" ${cur === ph.id ? 'aria-current="page"' : ""} style="--p:${progress[ph.id]()}"><span class="num">${ph.n}</span>${ph.short}</a>`).join("");
     document.querySelector(".pill[aria-current]")?.scrollIntoView({ block: "nearest", inline: "center" });
   }
@@ -794,7 +966,7 @@
   };
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-action],[data-cycle],[data-toggle],[data-fill],[data-week],[data-set],[data-hide],[data-go],[data-me]");
+    const t = e.target.closest("[data-action],[data-cycle],[data-toggle],[data-fill],[data-week],[data-set],[data-hide],[data-go],[data-me],[data-meweek],[data-viewer]");
     if (!t) return;
     const d = t.dataset;
     if (d.action) return actions[d.action]?.();
@@ -817,6 +989,8 @@
       g.what = d.text; save(); render(); return;
     }
     if (d.week) { reviewWeek = Number(d.week); render(); return; }
+    if (d.meweek) { meWeekPick = Number(d.meweek); render(); return; }
+    if (d.viewer) { localViewer = d.viewer; try { localStorage.setItem("boonboo-viewer", d.viewer); } catch { /* ignore */ } render(); return; }
     if (d.set) { set(d.set, get(d.set) === d.val ? "" : d.val); save(); render(); return; }
     if (d.hide) { hiddenEval[d.hide] = !hiddenEval[d.hide]; render(); return; }
   });
@@ -859,6 +1033,17 @@
     setTimeout(() => { if (Sync.dirty && !document.activeElement?.dataset?.bind) render(); }, 400);
   });
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") Sync.pull(); });
+
+  const tip = document.getElementById("tip");
+  document.addEventListener("pointerover", (e) => {
+    const t = e.target.closest?.("[data-tip]");
+    if (!t) { tip.hidden = true; return; }
+    tip.textContent = t.dataset.tip; tip.hidden = false;
+    const r = t.getBoundingClientRect();
+    tip.style.left = Math.min(window.innerWidth - tip.offsetWidth - 8, Math.max(8, r.left + r.width / 2 - tip.offsetWidth / 2)) + "px";
+    tip.style.top = Math.max(8, r.top - tip.offsetHeight - 8) + "px";
+  });
+  window.addEventListener("scroll", () => { tip.hidden = true; }, { passive: true });
 
   window.addEventListener("hashchange", () => render(true));
   Sync.setMode("local");

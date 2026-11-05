@@ -37,7 +37,7 @@ async function sameSecret(a, b) {
 async function changes(url, env) {
   const since = Math.max(0, parseInt(url.searchParams.get("since") || "0", 10) || 0);
   const { results } = await env.DB
-    .prepare("SELECT path, value, seq, by FROM fields WHERE seq > ?1 ORDER BY seq LIMIT ?2")
+    .prepare("SELECT path, value, seq, by, updated_at FROM fields WHERE seq > ?1 ORDER BY seq LIMIT ?2")
     .bind(since, LIMIT)
     .all();
   const cursor = results.length ? results[results.length - 1].seq : since;
