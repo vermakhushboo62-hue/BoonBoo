@@ -190,42 +190,71 @@
 
   /* ---------------- the broken heart ---------------- */
   const HEART = "M100 182 C 42 138, 0 104, 0 58 C 0 24, 26 2, 56 2 C 76 2, 92 14, 100 32 C 108 14, 124 2, 144 2 C 174 2, 200 24, 200 58 C 200 104, 158 138, 100 182 Z";
-  const CX = 100, CY = 78;
-
-  function rng(seed) { return () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646; }
+  /* A classic broken heart: one jagged crack splits it into left and right halves, and
+     three side cracks split each half into four pieces. Pieces are numbered top to bottom,
+     alternating left/right, so the heart mends from the top down as the phases progress. */
   const SHARDS = (() => {
-    const r = rng(20261105), N = PHASES.length;
-    const angles = arr(N, (k) => -90 + k * (360 / N) + (r() - 0.5) * 14);
-    const rad = (a) => (a * Math.PI) / 180;
-    const pt = (a, d, j = 0) => [CX + Math.cos(rad(a)) * d - Math.sin(rad(a)) * j, CY + Math.sin(rad(a)) * d + Math.cos(rad(a)) * j];
-    const bounds = angles.map((a) => [[CX, CY], ...[18, 40, 64, 92, 126, 240].map((d) => pt(a, d, (r() - 0.5) * 18))]);
-    return angles.map((a, k) => {
-      const b1 = bounds[k], b2 = bounds[(k + 1) % N];
-      let a2 = angles[(k + 1) % N]; if (a2 < a) a2 += 360;
-      const mid = (a + a2) / 2;
-      const far = [pt(a + (a2 - a) * 0.33, 260), pt(a + (a2 - a) * 0.66, 260)];
-      const poly = [...b1, ...far, ...b2.slice().reverse()];
-      const [cx, cy] = pt(mid, 52);
-      return { mid, poly: poly.map((p) => p.map((n) => n.toFixed(1)).join(",")).join(" "), cx, cy, crack: b1.map((p) => p.map((n) => n.toFixed(1)).join(",")).join(" ") };
-    });
+    const C = [[100, -30], [100, 25], [93, 50], [107, 72], [91, 96], [109, 118], [93, 140], [106, 160], [100, 195], [100, 240]];
+    const L = [ // side cracks on the left, each starting on the centre crack
+      [C[2], [70, 40], [45, 52], [20, 38], [-40, 45]],
+      [C[4], [65, 90], [42, 104], [18, 92], [-40, 100]],
+      [C[6], [72, 132], [55, 150], [30, 140], [-40, 150]],
+    ];
+    const R = [
+      [C[3], [130, 62], [152, 76], [178, 60], [240, 66]],
+      [C[5], [135, 112], [158, 124], [182, 108], [240, 115]],
+      [C[7], [125, 150], [145, 165], [165, 150], [240, 160]],
+    ];
+    const rev = (a) => a.slice().reverse();
+    const left = [
+      [C[0], C[1], C[2], ...L[0].slice(1), [-40, -30]],
+      [C[2], C[3], C[4], ...L[1].slice(1), ...rev(L[0].slice(1))],
+      [C[4], C[5], C[6], ...L[2].slice(1), ...rev(L[1].slice(1))],
+      [C[6], C[7], C[8], C[9], [-40, 240], ...rev(L[2].slice(1))],
+    ];
+    const right = [
+      [C[0], C[1], C[2], C[3], ...R[0].slice(1), [240, -30]],
+      [C[3], C[4], C[5], ...R[1].slice(1), ...rev(R[0].slice(1))],
+      [C[5], C[6], C[7], ...R[2].slice(1), ...rev(R[1].slice(1))],
+      [C[7], C[8], C[9], [240, 240], ...rev(R[2].slice(1))],
+    ];
+    const centres = { L: [[52, 32], [52, 75], [55, 118], [75, 158]], R: [[148, 34], [150, 90], [145, 135], [118, 168]] };
+    const str = (pts) => pts.map((p) => p.join(",")).join(" ");
+    const shards = [];
+    for (let row = 0; row < 4; row++) {
+      shards.push({ side: -1, row, poly: str(left[row]), cx: centres.L[row][0], cy: centres.L[row][1] });
+      shards.push({ side: 1, row, poly: str(right[row]), cx: centres.R[row][0], cy: centres.R[row][1] });
+    }
+    // cracks, each with the two shard indices it separates
+    const seg = (a, b) => str([C[a], C[b]]);
+    const cracks = [
+      [seg(1, 2), 0, 1], [seg(2, 3), 1, 2], [seg(3, 4), 2, 3], [seg(4, 5), 3, 4],
+      [seg(5, 6), 4, 5], [seg(6, 7), 5, 6], [seg(7, 8), 6, 7],
+      [str(L[0]), 0, 2], [str(L[1]), 2, 4], [str(L[2]), 4, 6],
+      [str(R[0]), 1, 3], [str(R[1]), 3, 5], [str(R[2]), 5, 7],
+    ];
+    return { shards, cracks };
   })();
 
   function heartSVG() {
     const prog = PHASES.map((ph) => progress[ph.id]());
     const whole = prog.every((p) => p >= 1);
+    // A real heart is red: every piece goes from deep red to a hint of its phase colour.
     const defs = PHASES.map((ph, k) =>
-      `<linearGradient id="g${k}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${ph.c[0]}"/><stop offset="1" stop-color="${ph.c[1]}"/></linearGradient>`).join("");
-    const shards = SHARDS.map((s, k) => {
-      const p = prog[k], d = (1 - p) * 16, rot = (1 - p) * (k % 2 ? 9 : -9);
-      const dx = Math.cos((s.mid * Math.PI) / 180) * d, dy = Math.sin((s.mid * Math.PI) / 180) * d;
-      const style = `transform-origin:${s.cx.toFixed(1)}px ${s.cy.toFixed(1)}px;transform:translate(${dx.toFixed(1)}px,${dy.toFixed(1)}px) rotate(${rot.toFixed(1)}deg);filter:saturate(${(0.25 + p * 1.1).toFixed(2)}) brightness(${(0.55 + p * 0.55).toFixed(2)});opacity:${(0.55 + p * 0.45).toFixed(2)}`;
+      `<linearGradient id="g${k}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff1f4b"/><stop offset="0.65" stop-color="#e0105f"/><stop offset="1" stop-color="${ph.c[1]}"/></linearGradient>`).join("");
+    const shards = SHARDS.shards.map((s, k) => {
+      const p = prog[k], q = 1 - p;
+      const dx = s.side * (6 + Math.abs(s.cx - 100) * 0.12) * q;
+      const dy = (s.row - 1.5) * 5 * q;
+      const rot = s.side * 7 * q;
+      const style = `transform-origin:${s.cx}px ${s.cy}px;transform:translate(${dx.toFixed(1)}px,${dy.toFixed(1)}px) rotate(${rot.toFixed(1)}deg);filter:saturate(${(0.2 + p * 1.1).toFixed(2)}) brightness(${(0.5 + p * 0.6).toFixed(2)});opacity:${(0.6 + p * 0.4).toFixed(2)}`;
       return `<g class="shard" data-go="${PHASES[k].id}" style="${style}" role="link" tabindex="0" aria-label="${PHASES[k].title}: ${pct(p)}% mended"><title>${PHASES[k].title} — ${pct(p)}% mended</title>
         <g clip-path="url(#heartClip)"><polygon points="${s.poly}" fill="url(#g${k})"/><polygon points="${s.poly}" fill="url(#swirl)" opacity="0.35"/></g>
         <g clip-path="url(#heartClip)"><polygon points="${s.poly}" fill="none" stroke="#fff" stroke-opacity="${(0.15 + p * 0.5).toFixed(2)}" stroke-width="1.2"/></g></g>`;
     }).join("");
-    const cracks = SHARDS.map((s, k) => {
-      const healed = Math.min(prog[k], prog[(k - 1 + PHASES.length) % PHASES.length]);
-      return `<polyline class="crack" points="${s.crack}" fill="none" stroke="#fff" stroke-width="2.2" stroke-linejoin="round" opacity="${((1 - healed) * 0.9).toFixed(2)}" clip-path="url(#heartClip)" filter="url(#glow)"/>`;
+    const cracks = SHARDS.cracks.map(([pts, i, j]) => {
+      const healed = Math.min(prog[i], prog[j]);
+      return `<polyline class="crack" points="${pts}" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round" opacity="${((1 - healed) * 0.8).toFixed(2)}" clip-path="url(#heartClip)" filter="url(#glow)"/>`;
     }).join("");
     const total = pct(overall());
     return `<svg class="heart-svg${whole ? " whole" : ""}" viewBox="-40 -40 280 270" role="img" aria-label="Our heart is ${total}% mended">
@@ -255,14 +284,14 @@
       const p = progress[ph.id]();
       return `<li><a href="#${ph.id}"><div class="top-line"><span>${ph.n}. ${ph.title}</span><span>${pct(p)}%</span></div><div class="bar"><i style="width:${pct(p)}%"></i></div></a></li>`;
     }).join("");
-    const legend = PHASES.map((ph) => `<a href="#${ph.id}"><i style="background:linear-gradient(135deg,${ph.c[0]},${ph.c[1]})"></i>${ph.short}</a>`).join("");
+    const legend = PHASES.map((ph) => `<a href="#${ph.id}"><b>${ph.n}</b>${ph.short}</a>`).join("");
     return `
     <section class="dash">
       <div class="card heart-card">
         <div class="eyebrow">Our heart</div>
         <div class="heart-wrap">${heartSVG()}</div>
         <div class="heart-legend">${legend}</div>
-        <p class="muted" style="margin-top:12px">Every shard is one phase. Do the work together and watch the pieces drift home. Tap a shard to jump in.</p>
+        <p class="muted" style="margin-top:12px">Every piece is one phase, mending from the top down. Do the work together and watch the halves come back together. Tap a piece to jump in.</p>
       </div>
       <div class="stack">
         <div class="card">
