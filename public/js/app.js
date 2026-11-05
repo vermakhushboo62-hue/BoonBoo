@@ -105,12 +105,181 @@
     catch { return fresh(); }
   }
   let S = load();
-  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { /* private mode */ } };
+  const saveLocal = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { /* private mode */ } };
+  const save = () => { saveLocal(); Sync.schedulePush(); };
 
   const get = (path) => path.split(".").reduce((o, k) => (o == null ? o : o[k]), S);
   function set(path, val) {
     const ks = path.split("."); const last = ks.pop();
     const o = ks.reduce((o, k) => o[k], S); o[last] = val;
+  }
+
+  /* ---------------- sync between your two phones ----------------
+     Each leaf value (one text box, one checkbox, one tracker square) is saved as its own
+     row on the server, so you can both type at the same time without overwriting each
+     other. The phone keeps a full copy in localStorage and keeps working offline. */
+  const LINK_KEY = "boonboo-link";
+  const Sync = {
+    mode: "local",      // local | locked | online | saving | offline
+    key: "", me: "",
+    cursor: 0,
+    base: {},           // the server's value for each path, as last seen
+    timer: null, poll: null, pushing: false, again: false,
+    error: "", dirty: false,
+
+    readLink() { try { return JSON.parse(localStorage.getItem(LINK_KEY)) || {}; } catch { return {}; } },
+    writeLink() { try { localStorage.setItem(LINK_KEY, JSON.stringify({ key: this.key, me: this.me })); } catch { /* ignore */ } },
+
+    api(path, opts = {}, key = this.key) {
+      return fetch("/api/" + path, { ...opts, cache: "no-store", headers: { "content-type": "application/json", "x-boonboo-key": key } });
+    },
+
+    async start() {
+      const link = this.readLink();
+      this.key = link.key || ""; this.me = link.me || "";
+      let r;
+      try { r = await this.api("changes?since=0"); } catch { return this.setMode("local"); }
+      const isJson = (r.headers.get("content-type") || "").includes("json");
+      if (r.status === 401 && isJson) { this.setMode("locked"); return render(true); }
+      if (!r.ok || !isJson) return this.setMode("local");   // no server (e.g. opened locally)
+      await this.first(await r.json());
+    },
+
+    async connect(key, me) {
+      let r;
+      try { r = await this.api("changes?since=0", {}, key); } catch { this.error = "Couldn't reach BoonBoo. Check your internet."; return render(); }
+      if (r.status === 401) { this.error = "That couple code isn't right."; return render(); }
+      if (!r.ok) { this.error = "Something went wrong on the server. Try again in a minute."; return render(); }
+      this.key = key; this.me = me; this.error = ""; this.writeLink();
+      await this.first(await r.json());
+      confetti(60); toast("Connected. You're in this together now 💞");
+    },
+
+    // First contact: what's on the server wins; anything only on this phone gets uploaded.
+    async first(data) {
+      this.cursor = 0; this.base = {};
+      for (;;) {
+        for (const c of data.changes) { applyPath(c.path, c.value); this.base[c.path] = c.value; }
+        this.cursor = data.cursor;
+        if (!data.more) break;
+        data = await (await this.api("changes?since=" + this.cursor)).json();
+      }
+      saveLocal();
+      this.setMode("online");
+      render();
+      await this.push();
+      clearInterval(this.poll);
+      this.poll = setInterval(() => { if (document.visibilityState === "visible") this.pull(); }, 4000);
+    },
+
+    async pull() {
+      if (!["online", "saving", "offline"].includes(this.mode)) return;
+      let data;
+      try {
+        const r = await this.api("changes?since=" + this.cursor);
+        if (r.status === 401) { this.setMode("locked"); return render(true); }
+        if (!r.ok) throw new Error(r.status);
+        data = await r.json();
+      } catch { return this.setMode("offline"); }
+      const local = flatten(S), changed = [];
+      for (const c of data.changes) {
+        const unsent = local[c.path] !== this.base[c.path];   // you edited it and it hasn't been saved yet
+        this.base[c.path] = c.value;
+        if (unsent || local[c.path] === c.value) continue;
+        applyPath(c.path, c.value); changed.push(c.path);
+      }
+      this.cursor = data.cursor;
+      if (this.mode === "offline") this.setMode("online");
+      if (changed.length) { saveLocal(); showRemote(changed); }
+      if (data.more) this.pull();
+    },
+
+    schedulePush() {
+      if (!["online", "saving", "offline"].includes(this.mode)) return;
+      clearTimeout(this.timer);
+      this.timer = setTimeout(() => this.push(), 500);
+    },
+
+    async push() {
+      if (this.pushing) { this.again = true; return; }
+      const local = flatten(S);
+      const changes = Object.keys(local).filter((p) => local[p] !== this.base[p]).map((p) => ({ path: p, value: local[p] }));
+      if (!changes.length) return;
+      this.pushing = true; this.setMode("saving");
+      try {
+        for (let i = 0; i < changes.length; i += 400) {
+          const part = changes.slice(i, i + 400);
+          const r = await this.api("patch", { method: "POST", body: JSON.stringify({ by: this.me, changes: part }) });
+          if (r.status === 401) { this.pushing = false; this.setMode("locked"); return render(true); }
+          if (!r.ok) throw new Error(r.status);
+          for (const c of part) this.base[c.path] = c.value;
+        }
+        this.setMode("online");
+      } catch {
+        this.setMode("offline");
+        clearTimeout(this.timer); this.timer = setTimeout(() => this.push(), 8000);
+      }
+      this.pushing = false;
+      if (this.again) { this.again = false; this.push(); }
+    },
+
+    forget() {
+      clearInterval(this.poll);
+      try { localStorage.removeItem(LINK_KEY); } catch { /* ignore */ }
+      this.key = ""; this.me = ""; this.setMode("locked"); render(true);
+    },
+
+    setMode(m) {
+      this.mode = m;
+      const el = document.getElementById("sync"); if (!el) return;
+      const txt = {
+        local: "💾 Saved on this device",
+        locked: "🔒 Enter your couple code",
+        online: "💞 Shared between your phones",
+        saving: "✨ Saving…",
+        offline: "⚠️ Offline: will save when you're back",
+      }[m];
+      el.textContent = txt; el.dataset.mode = m;
+      const ub = document.getElementById("unlinkBtn");
+      if (ub) ub.hidden = !["online", "saving", "offline"].includes(m);
+      const pv = document.getElementById("privacy");
+      if (pv) pv.textContent = m === "local"
+        ? "🔒 Everything stays on this device — nothing is sent anywhere."
+        : "🔒 Shared only between the two of you, protected by your couple code.";
+    },
+  };
+
+  // Every leaf of the state as "path" → JSON text. Past cycles (history) are kept as one value.
+  function flatten(o, pre = "", out = {}) {
+    for (const k of Object.keys(o)) {
+      const p = pre ? pre + "." + k : k, v = o[k];
+      if (p === "history" || v === null || typeof v !== "object") out[p] = JSON.stringify(v);
+      else flatten(v, p, out);
+    }
+    return out;
+  }
+  function applyPath(path, value) {
+    try {
+      const ks = path.split("."), last = ks.pop();
+      let o = S;
+      for (const k of ks) { if (o[k] == null || typeof o[k] !== "object") return; o = o[k]; }
+      o[last] = JSON.parse(value);
+    } catch { /* unknown or malformed field from a newer version: ignore */ }
+  }
+  // Show your partner's changes without yanking the box you're typing in.
+  function showRemote(paths) {
+    const ae = document.activeElement;
+    if (ae && ae.dataset && ae.dataset.bind) {
+      for (const p of paths) {
+        const el = document.querySelector(`[data-bind="${p}"]`);
+        if (!el || el === ae) continue;
+        if (el.type === "checkbox") el.checked = !!get(p); else el.value = get(p) ?? "";
+      }
+      Sync.dirty = true;
+      refreshLive();
+    } else {
+      render();
+    }
   }
 
   /* ---------------- progress ---------------- */
@@ -132,7 +301,7 @@
   /* ---------------- helpers ---------------- */
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const name = (p) => esc(S.names[p] || (p === "a" ? "Partner A" : "Partner B"));
-  const tag = (p) => `<div class="person-tag"><span class="dot ${p}"></span>${name(p)}</div>`;
+  const tag = (p) => `<div class="person-tag"><span class="dot ${p}"></span>${name(p)}${Sync.me === p ? '<span class="you">you</span>' : ""}</div>`;
   const pct = (x) => Math.round(x * 100);
 
   function field(path, label, { area = false, ph = "", hint = "", rerender = false } = {}) {
@@ -474,6 +643,23 @@
     </div>`;
   };
 
+  let connectAs = "";
+  function connectView() {
+    return `<section class="card connect">
+      <div class="eyebrow">Welcome to BoonBoo</div>
+      <h1>Join your shared heart</h1>
+      <p class="muted">Enter the couple code the two of you chose. You only need to do this once on each phone.</p>
+      <form id="connectForm" autocomplete="off">
+        <label class="fld"><span>Couple code</span><input type="password" id="coupleCode" required autocomplete="current-password" placeholder="Your secret code" /></label>
+        <div class="fld"><span>Who's holding this phone?</span>
+          <div class="row">${P.map((p) => `<button type="button" class="btn ${connectAs === p ? "" : "ghost"}" data-me="${p}"><span class="dot ${p}"></span> ${name(p)}</button>`).join("")}</div>
+          <small class="muted">This just marks your column with “you”. You can still see and edit everything.</small></div>
+        ${Sync.error ? `<p class="err">${esc(Sync.error)}</p>` : ""}
+        <button class="btn" type="submit">Connect</button>
+      </form>
+    </section>`;
+  }
+
   /* ---------------- routing / render ---------------- */
   function route() { const h = location.hash.slice(1); return views[h] ? h : "dashboard"; }
 
@@ -486,6 +672,14 @@
   }
 
   function render(scrollTop = false) {
+    Sync.dirty = false;
+    document.querySelector(".foot-actions").hidden = Sync.mode === "locked";
+    if (Sync.mode === "locked") {
+      stopTimerIfLeaving("connect");
+      document.getElementById("nav").innerHTML = "";
+      document.getElementById("view").innerHTML = connectView();
+      return;
+    }
     const cur = route();
     stopTimerIfLeaving(cur);
     document.getElementById("view").innerHTML = views[cur]();
@@ -587,17 +781,24 @@
       const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `boonboo-${today()}.json`; a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     },
+    unlink() {
+      if (confirm("Disconnect this phone? Your shared data stays safe online; you'll need the couple code to reconnect.")) Sync.forget();
+    },
     wipe() {
-      if (!confirm("Erase everything on this device? This can't be undone. (Export a backup first if you want one.)")) return;
+      const both = Sync.mode !== "local";
+      if (!confirm(both
+        ? "Erase everything for BOTH of you, on both phones? This can't be undone. (Export a backup first if you want one.)"
+        : "Erase everything on this device? This can't be undone. (Export a backup first if you want one.)")) return;
       S = fresh(); save(); location.hash = "#dashboard"; render(true);
     },
   };
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-action],[data-cycle],[data-toggle],[data-fill],[data-week],[data-set],[data-hide],[data-go]");
+    const t = e.target.closest("[data-action],[data-cycle],[data-toggle],[data-fill],[data-week],[data-set],[data-hide],[data-go],[data-me]");
     if (!t) return;
     const d = t.dataset;
     if (d.action) return actions[d.action]?.();
+    if (d.me) { connectAs = d.me; const code = document.getElementById("coupleCode")?.value || ""; render(); const c = document.getElementById("coupleCode"); if (c) { c.value = code; c.focus(); } return; }
     if (d.go) { location.hash = "#" + d.go; return; }
     if (d.cycle) {
       const next = CELL_NEXT[get(d.cycle)]; set(d.cycle, next); save();
@@ -644,6 +845,23 @@
     e.target.value = "";
   });
 
+  document.addEventListener("submit", (e) => {
+    if (e.target.id !== "connectForm") return;
+    e.preventDefault();
+    const code = document.getElementById("coupleCode").value.trim();
+    if (!connectAs) { Sync.error = "Tap your name so we know whose phone this is."; const c = code; render(); document.getElementById("coupleCode").value = c; return; }
+    Sync.connect(code, connectAs);
+  });
+
+  // While you're typing, your partner's edits update other boxes in place; the rest of
+  // the page refreshes once you leave the box.
+  document.addEventListener("focusout", () => {
+    setTimeout(() => { if (Sync.dirty && !document.activeElement?.dataset?.bind) render(); }, 400);
+  });
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") Sync.pull(); });
+
   window.addEventListener("hashchange", () => render(true));
+  Sync.setMode("local");
   render();
+  Sync.start();
 })();

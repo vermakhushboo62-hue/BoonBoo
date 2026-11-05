@@ -20,6 +20,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   background: var(--bg);
@@ -143,7 +144,7 @@ p { margin: 0 0 10px; }
 .fld { display: block; margin-bottom: 14px; }
 .fld > span { display: block; font-weight: 600; margin-bottom: 6px; font-size: 15px; }
 .fld small { display: block; color: var(--muted); font-weight: 400; }
-input[type="text"], input[type="date"], input[type="number"], textarea {
+input[type="text"], input[type="password"], input[type="date"], input[type="number"], textarea {
   width: 100%;
   background: rgba(0,0,0,0.35);
   border: 1px solid var(--line);
@@ -254,6 +255,15 @@ th { font-family: "Righteous"; font-weight: 400; color: var(--sun); }
 .verdict.yes { background: var(--done); color: #102000; }
 .verdict.growing { background: var(--partial); color: #2a2000; }
 .verdict.no { background: var(--missed); color: #2a0008; }
+
+/* ---------- sync ---------- */
+.sync { margin: 10px auto 0; display: table; font-size: 13px; padding: 4px 12px; border-radius: 999px; background: rgba(0,0,0,0.35); border: 1px solid var(--line); color: var(--muted); }
+.sync[data-mode="online"] { border-color: rgba(157,255,58,0.5); color: var(--ink); }
+.sync[data-mode="offline"] { border-color: var(--missed); color: #ffc2cc; }
+.you { font-family: "Outfit"; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; padding: 2px 8px; border-radius: 99px; background: var(--sun); color: #2a2000; }
+.connect { max-width: 520px; margin: 20px auto; }
+.connect .btn .dot { width: 10px; height: 10px; }
+.err { color: #ffb3c1; font-weight: 600; }
 
 /* ---------- misc ---------- */
 .foot { max-width: 1180px; margin: 0 auto; padding: 18px 16px 40px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: center; color: var(--muted); font-size: 14px; }
