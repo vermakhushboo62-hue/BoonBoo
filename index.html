@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BoonBoo</title>
+  <meta name="description" content="BoonBoo — a 30-day ritual for two: honest talk, three goals each, and a heart that heals as you go." />
+  <meta name="theme-color" content="#0b0217" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💗</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Monoton&family=Righteous&family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="trip" aria-hidden="true">
+    <div class="trip-swirl"></div>
+    <div class="trip-rings"></div>
+    <div class="trip-grain"></div>
+  </div>
+
+  <header class="top">
+    <a href="#dashboard" class="logo" aria-label="BoonBoo home">BoonBoo</a>
+    <p class="tagline">mend the heart, one Sunday at a time</p>
+  </header>
+
+  <nav class="phases" id="nav" aria-label="Phases"></nav>
+
+  <main id="view" tabindex="-1"></main>
+
+  <footer class="foot">
+    <p>🔒 Everything stays on this device — nothing is sent anywhere.</p>
+    <div class="foot-actions">
+      <button class="btn ghost sm" data-action="export">Export backup</button>
+      <label class="btn ghost sm">Import backup<input type="file" accept="application/json" id="importFile" hidden /></label>
+      <button class="btn ghost sm danger" data-action="wipe">Erase everything</button>
+    </div>
+  </footer>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="js/app.js"></script>
+</body>
+</html>
