@@ -23,15 +23,18 @@ Each of you uses BoonBoo on your own phone, and everything is shared right away.
 ## Structure
 
 ```
-public/                 the app (served as-is, no build step)
+public/                 the app (served as static files, no build step)
   index.html
   css/style.css         psychedelic theme
   js/app.js             phases, broken-heart SVG, timer, tracker, sync
-functions/api/          Cloudflare Pages Functions (the shared save)
-  _middleware.js        checks the couple code, creates the table on first use
-  changes.js            GET  /api/changes?since=N  → fields changed since N
-  patch.js              POST /api/patch            → save changed fields
+src/worker.js           Cloudflare Worker: serves public/ and the shared-save API
+wrangler.jsonc          Worker settings (static files, D1 database "boonboo")
 ```
+
+API (every call needs the couple code in the `x-boonboo-key` header):
+
+- `GET /api/changes?since=N` returns the fields changed since N.
+- `POST /api/patch` saves the changed fields.
 
 ### How sharing works
 
@@ -39,37 +42,33 @@ functions/api/          Cloudflare Pages Functions (the shared save)
   D1 database. Because of that, you can both type at the same time without overwriting each other.
 - Each phone checks for the other's changes every 4 seconds, and straight away when you open the app.
 - Each phone also keeps a full copy, so BoonBoo still works without signal and catches up later.
-- Access needs the **couple code**, a secret only the two of you know. It's stored on the
-  server as `BOONBOO_KEY` and typed in once per phone.
-- If you open `public/index.html` without the server, BoonBoo saves on that device only.
+- Access needs the **couple code**, a secret only the two of you know. It's stored on
+  Cloudflare as `BOONBOO_KEY` and typed in once per phone.
+- If you open `public/index.html` without the Worker, BoonBoo saves on that device only.
 
-## Put it on Cloudflare (one-time, about 10 minutes)
+## Hosting on Cloudflare Workers
 
-1. **Create the database:** Cloudflare dashboard → Storage & Databases → D1 → *Create* →
-   name it `boonboo`. (BoonBoo creates its table automatically on first use.)
-2. **Create the site:** Workers & Pages → *Create* → *Pages* → *Connect to Git* → pick
-   `BoonBoo`.
-   - Framework preset: **None**
-   - Build command: *(leave empty)*
-   - Build output directory: **`public`**
-3. **Connect the database:** your Pages project → Settings → Bindings → *Add* → D1 database →
-   variable name **`DB`** → database `boonboo`.
-4. **Set the couple code:** Settings → Variables and Secrets → *Add* → type **Secret** →
-   name **`BOONBOO_KEY`** → value: a long phrase only you two know (for example
-   `four-random-words-we-love`). Longer is safer.
-5. **Redeploy** (Deployments → ⋯ → *Retry deployment*) so the binding and secret take effect.
-6. Open the `*.pages.dev` link on both phones, enter the couple code, tap your name, and
-   use *Add to Home Screen*.
+The Worker `boonboo` is connected to this GitHub repo, so every push to `main` rebuilds
+and redeploys it. On deploy, Cloudflare creates (or reuses) a D1 database named `boonboo`
+and links it as `DB`, as set in `wrangler.jsonc`.
 
-Every push to `main` redeploys automatically.
+One manual step: set the couple code.
+Workers & Pages → `boonboo` → Settings → Variables and Secrets → *Add* →
+type **Secret**, name **`BOONBOO_KEY`**, value: a long phrase only you two know.
+Then use *Deploy* (or push any change) so it takes effect.
+
+Check it: open the site. The line under the logo should say **🔒 Enter your couple code**.
+If it says **💾 Saved on this device**, the database or the secret isn't connected yet.
 
 Optional extra lock: Cloudflare Zero Trust → Access → protect the site so only your two
 email addresses can open it (free for up to 50 users).
 
 ## Run locally
 
+Put `BOONBOO_KEY=test-code` in a file named `.dev.vars` in the repo root, then run:
+
 ```bash
-npx wrangler pages dev public --d1 DB=boonboo-local --binding BOONBOO_KEY=test-code
+npx wrangler dev
 ```
 
-Then open http://localhost:8788 and enter `test-code`.
+Then open http://localhost:8787 and enter `test-code`.

@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "boonboo",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  // Cloudflare creates (or reuses) a D1 database named "boonboo" on deploy.
+  "d1_databases": [
+    { "binding": "DB", "database_name": "boonboo" }
+  ]
+  // The couple code is a secret, set in the dashboard: Settings → Variables and Secrets → BOONBOO_KEY.
+}
