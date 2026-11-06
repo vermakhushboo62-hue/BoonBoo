@@ -57,7 +57,7 @@ body {
 @keyframes beat { 0%, 100% { transform: scale(1); } 15% { transform: scale(1.06); } 30% { transform: scale(0.99); } 45% { transform: scale(1.04); } }
 
 /* ---------- header / nav ---------- */
-.top { text-align: center; padding: 28px 16px 6px; }
+.top { text-align: center; padding: calc(28px + env(safe-area-inset-top)) 16px 6px; }
 .logo {
   font-family: "Monoton", cursive;
   font-size: clamp(44px, 10vw, 92px);

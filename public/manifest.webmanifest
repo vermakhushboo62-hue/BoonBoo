@@ -1,0 +1,17 @@
+{
+  "name": "BoonBoo",
+  "short_name": "BoonBoo",
+  "description": "A 30-day ritual for two: honest talk, three goals each, and a heart that heals as you go.",
+  "start_url": "/#me",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0217",
+  "theme_color": "#0b0217",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
