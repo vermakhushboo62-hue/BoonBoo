@@ -240,11 +240,11 @@
       this.mode = m;
       const el = document.getElementById("sync"); if (!el) return;
       const txt = {
-        local: "💾 Saved on this device",
-        locked: "🔒 Enter your couple code",
-        online: "💞 Shared between your phones",
+        local: "💾 This device only",
+        locked: "🔒 Locked",
+        online: "💞 Synced",
         saving: "✨ Saving…",
-        offline: "⚠️ Offline: will save when you're back",
+        offline: "⚠️ Offline",
       }[m];
       el.textContent = txt; el.dataset.mode = m;
       const ub = document.getElementById("unlinkBtn");
@@ -322,12 +322,16 @@
 
   function head(id, lead) {
     const ph = PHASES.find((x) => x.id === id);
-    return `<div class="phase-head"><div><div class="eyebrow">Phase ${ph.n} · ${pct(progress[id]())}% mended</div><h1>${ph.title}</h1>${lead ? `<p class="lead">${lead}</p>` : ""}</div>${nextBtn(id)}</div>`;
+    return `<div class="phase-head"><div><div class="eyebrow">Step ${ph.n} · ${pct(progress[id]())}% done</div><h1>${ph.title}</h1>${lead ? `<p class="lead">${lead}</p>` : ""}</div></div>`;
   }
-  function nextBtn(id) {
+  function stepper(id) {
     const i = PHASES.findIndex((x) => x.id === id);
-    const nx = PHASES[i + 1];
-    return nx ? `<a class="btn" href="#${nx.id}">Next: ${nx.short} →</a>` : `<a class="btn" href="#dashboard">See our heart →</a>`;
+    const pv = PHASES[i - 1], nx = PHASES[i + 1];
+    return `<div class="stepper">
+      ${pv ? `<a class="btn ghost" href="#${pv.id}">← ${pv.short}</a>` : `<a class="btn ghost" href="#steps">← All steps</a>`}
+      <span class="muted">${i + 1} of ${PHASES.length}</span>
+      ${nx ? `<a class="btn" href="#${nx.id}">${nx.short} →</a>` : `<a class="btn" href="#dashboard">Our heart ♥</a>`}
+    </div>`;
   }
 
   function nextSunday(from = new Date()) {
@@ -433,7 +437,7 @@
       return `<polyline class="crack" points="${pts}" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round" opacity="${((1 - healed) * 0.8).toFixed(2)}" clip-path="url(#heartClip)" filter="url(#glow)"/>`;
     }).join("");
     const total = pct(overall());
-    return `<svg class="heart-svg${whole ? " whole" : ""}" viewBox="-40 -40 280 270" role="img" aria-label="Our heart is ${total}% mended">
+    return `<svg class="heart-svg${whole ? " whole" : ""}" viewBox="-30 -28 260 245" role="img" aria-label="Our heart is ${total}% mended">
       <defs>${defs}
         <clipPath id="heartClip"><path d="${HEART}"/></clipPath>
         <pattern id="swirl" width="24" height="24" patternUnits="userSpaceOnUse" patternTransform="rotate(30)">
@@ -452,32 +456,28 @@
   /* ---------------- views ---------------- */
   const views = {};
 
+  // Your own column first and open; your partner's folded underneath.
+  function cols(fn, cls = "") {
+    const me = viewer(), them = other(me);
+    return `<div class="cols">
+      <div class="card ${cls}">${tag(me)}${fn(me)}</div>
+      <details class="card partner ${cls}"><summary><span class="dot ${them}"></span>${name(them)}'s side<span class="chev">▾</span></summary>${fn(them)}</details>
+    </div>`;
+  }
+
   views.dashboard = () => {
     const day = cycleDay();
     const sun = nextSunday();
     const isSunday = new Date().getDay() === 0;
-    const plist = PHASES.map((ph) => {
-      const p = progress[ph.id]();
-      return `<li><a href="#${ph.id}"><div class="top-line"><span>${ph.n}. ${ph.title}</span><span>${pct(p)}%</span></div><div class="bar"><i style="width:${pct(p)}%"></i></div></a></li>`;
-    }).join("");
-    const legend = PHASES.map((ph) => `<a href="#${ph.id}"><b>${ph.n}</b>${ph.short}</a>`).join("");
     return `
     <section class="dash">
       <div class="card heart-card">
         <div class="eyebrow">Our heart</div>
         <div class="heart-wrap">${heartSVG()}</div>
-        <div class="heart-legend">${legend}</div>
-        <p class="muted" style="margin-top:12px">Every piece is one phase, mending from the top down. Do the work together and watch the halves come back together. Tap a piece to jump in.</p>
+        <p class="muted" style="margin-top:12px">Each piece is one step. Finish a step together and it mends. Tap a piece to open it.</p>
       </div>
       <div class="stack">
         ${growthCard()}
-        <div class="card">
-          <div class="eyebrow">Who's in</div>
-          <div class="grid2" style="gap:12px;margin-top:8px">
-            ${field("names.a", '<span class="dot a"></span> Partner one', { ph: "Name", rerender: true })}
-            ${field("names.b", '<span class="dot b"></span> Partner two', { ph: "Name", rerender: true })}
-          </div>
-        </div>
         <div class="card">
           <div class="eyebrow">Our 30 days</div>
           ${day
@@ -496,16 +496,13 @@
           </ul>
           <a class="btn sm" href="#review" style="margin-top:10px">Open this week's reset</a>
         </div>
-        <div class="card"><div class="eyebrow">Phases</div><ul class="plist" style="margin-top:10px">${plist}</ul></div>
       </div>
     </section>`;
   };
 
   views.rules = () => `
     ${head("rules", "These are what make the whole thing work. Each of you reads them and agrees, separately, in your own column.")}
-    <div class="grid2">
-      ${P.map((p) => `<div class="card">${tag(p)}${RULES.map((r, i) => check(`rules.${p}.${i}`, `<strong>${i + 1}. ${r[0]}</strong> <span class="muted">${r[1]}</span>`)).join("")}</div>`).join("")}
-    </div>
+    ${cols((p) => RULES.map((r, i) => check(`rules.${p}.${i}`, `<strong>${i + 1}. ${r[0]}</strong> <span class="muted">${r[1]}</span>`)).join(""))}
     <div class="rule" style="margin-top:18px"><strong>A distinction:</strong> rewards in this tool recognise genuine effort and consistency. They are never a bargaining chip for basic respect, loyalty or honesty.</div>`;
 
   views.talk = () => `
@@ -531,36 +528,30 @@
         </div>
       </div>
     </div>
-    <div class="grid2" style="margin-top:18px">
-      ${P.map((p) => `<div class="card">${tag(p)}${TALK_Q.map((q, i) => field(`talk.${p}.${i}`, `${i + 1}. ${q}`, { area: true, ph: "In my own words…" })).join("")}</div>`).join("")}
-    </div>
+    ${cols((p) => TALK_Q.map((q, i) => field(`talk.${p}.${i}`, `${i + 1}. ${q}`, { area: true, ph: "In my own words…" })).join(""))}
     <div class="card" style="margin-top:18px">
       ${field("talk.respond", "After listening: what did we each hear?", { area: true, ph: "Reflect back what you heard before responding. “What I heard you say is…”" })}
     </div>`;
 
   views.goals = () => `
     ${head("goals", "Each person identifies three specific goals about behaviours that can actually be changed. These are examples, not assumptions about either of you.")}
-    <div class="card"><h3>Need a starting point?</h3><p class="muted">Tap an example to drop it into your next empty goal.</p>
-      <div class="grid2">${P.map((p) => `<div><div class="person-tag" style="font-size:16px"><span class="dot ${p}"></span>for ${name(p)}</div>${GOAL_EXAMPLES.map((g) => `<button class="chip" data-fill="${p}" data-text="${esc(g)}">${esc(g)}</button>`).join("")}</div>`).join("")}</div>
-    </div>
-    <div class="grid2" style="margin-top:18px">
-      ${P.map((p) => `<div class="card">${tag(p)}${S.goals[p].map((g, i) => `
+    <div class="card"><details><summary>Need a starting point? Tap an example</summary><p class="muted">It drops into your next empty goal.</p>
+      <div>${GOAL_EXAMPLES.map((g) => `<button class="chip" data-fill="${viewer()}" data-text="${esc(g)}">${esc(g)}</button>`).join("")}</div>
+    </details></div>
+    ${cols((p) => S.goals[p].map((g, i) => `
         <h3 style="color:var(--sun)">Goal ${i + 1}</h3>
         ${field(`goals.${p}.${i}.what`, "What exactly will I do?", { ph: "A specific behaviour" })}
         ${field(`goals.${p}.${i}.freq`, "How frequently?", { ph: "e.g. every evening, twice a week" })}
-        ${field(`goals.${p}.${i}.proof`, "How will my partner know I've followed through?", { ph: "Something they can observe" })}`).join('<hr style="border:0;border-top:1px solid var(--line);margin:18px 0">')}</div>`).join("")}
-    </div>`;
+        ${field(`goals.${p}.${i}.proof`, "How will my partner know I've followed through?", { ph: "Something they can observe" })}`).join('<hr class="sep">'))}`;
 
   views.measure = () => `
     ${head("measure", "Avoid vague goals like “be more responsible” or “be more loving”. Turn each goal into a commitment someone could actually observe.")}
     <div class="card table-scroll"><table><thead><tr><th>Vague goal</th><th>Measurable commitment</th></tr></thead>
       <tbody>${MEASURE_EXAMPLES.map(([v, m]) => `<tr><td class="muted">${v}</td><td>${m}</td></tr>`).join("")}</tbody></table></div>
-    <div class="grid2" style="margin-top:18px">
-      ${P.map((p) => `<div class="card">${tag(p)}${S.goals[p].map((g, i) =>
+    ${cols((p) => S.goals[p].map((g, i) =>
         field(`goals.${p}.${i}.measurable`, `Goal ${i + 1}: ${esc(g.what) || '<span class="muted">(not written yet)</span>'}`, {
           area: true, ph: "What I'll do, how often, and how you'll see it", hint: [g.freq, g.proof].filter(filled).map(esc).join(" · "),
-        })).join("")}</div>`).join("")}
-    </div>`;
+        })).join(""))}`;
 
   const goalLabel = (p, i) => {
     const g = S.goals[p][i];
@@ -573,13 +564,12 @@
       <div class="legend-row"><span style="--c:var(--done)">✓ followed through</span><span style="--c:var(--partial)">~ partly</span><span style="--c:var(--missed)">✕ missed</span><span>tap a square to change it</span></div>
       <button class="btn sm" data-action="copy-tracker">Copy weekly tracker</button>
     </div>
-    <div class="grid2">
-      ${P.map((p) => `<div class="card table-scroll">${tag(p)}<table class="tracker"><thead><tr><th>Goal</th>${arr(WEEKS, (w) => `<th>W${w + 1}</th>`).join("")}</tr></thead><tbody>
+    ${cols((p) => `<div class="table-scroll"><table class="tracker"><thead><tr><th>Goal</th>${arr(WEEKS, (w) => `<th>W${w + 1}</th>`).join("")}</tr></thead><tbody>
         ${S.track[p].map((row, i) => `<tr><td class="goal-name">${goalLabel(p, i)}</td>${row.map((c, w) =>
           `<td><button class="cell ${c}" data-cycle="track.${p}.${i}.${w}" aria-label="${name(p)} goal ${i + 1} week ${w + 1}: ${c || "not marked"}">${CELL[c]}</button></td>`).join("")}</tr>`).join("")}
-      </tbody></table></div>`).join("")}
-    </div>
-    <div class="grid2" style="margin-top:18px">
+      </tbody></table></div>`)}
+    <h2 style="margin-top:22px">Weekly notes</h2>
+    <div class="grid2">
       ${S.track.notes.map((_, w) => `<div class="card"><h3>Week ${w + 1}</h3>
         ${field(`track.notes.${w}.well`, "What went well?", { area: true })}
         ${field(`track.notes.${w}.improve`, "What needs improvement?", { area: true })}</div>`).join("")}
@@ -600,10 +590,8 @@
       <div class="card"><div class="eyebrow">Recognition</div><h3>Three appreciations each</h3>
         <p class="muted">Share three things you appreciated about the other's efforts. Write yours below.</p></div>
     </div>
-    <div class="grid2" style="margin-top:18px">
-      ${P.map((p) => `<div class="card">${tag(p)}<p class="muted">What I appreciated about ${name(p === "a" ? "b" : "a")}'s effort:</p>
-        ${S.rewards.appreciate[p].map((_, i) => field(`rewards.appreciate.${p}.${i}`, `${i + 1}.`, { ph: "I noticed when you…" })).join("")}</div>`).join("")}
-    </div>
+    ${cols((p) => `<p class="muted">What I appreciated about ${name(other(p))}'s effort:</p>
+        ${S.rewards.appreciate[p].map((_, i) => field(`rewards.appreciate.${p}.${i}`, `${i + 1}.`, { ph: "I noticed when you…" })).join("")}`)}
     <div class="rule" style="margin-top:18px"><strong>One important distinction:</strong> rewards recognise genuine effort and consistency. They are never used to bargain for basic respect, loyalty or honesty.</div>`;
 
   let reviewWeek = null;
@@ -615,9 +603,7 @@
     <div class="row" style="margin-bottom:16px"><span class="muted">Review for</span>
       <div class="seg">${arr(WEEKS, (i) => `<button class="${i === w ? "on" : ""}" data-week="${i}">Week ${i + 1}</button>`).join("")}</div>
     </div>
-    <div class="grid2">
-      ${P.map((p) => `<div class="card">${tag(p)}${REVIEW_Q.map((q, i) => field(`review.${w}.${p}.${i}`, `${i + 1}. ${q}`, { area: true })).join("")}</div>`).join("")}
-    </div>
+    ${cols((p) => REVIEW_Q.map((q, i) => field(`review.${w}.${p}.${i}`, `${i + 1}. ${q}`, { area: true })).join(""))}
     <div class="card" style="margin-top:18px">
       ${field(`review.${w}.corrective`, "If someone missed a goal: why, and what's our corrective action?", { area: true, ph: "Discuss the reason, agree on one concrete fix." })}
       <p class="muted" style="margin:0">Don't turn the review into a trial.</p>
@@ -629,16 +615,14 @@
   views.evaluate = () => {
     const done = P.every((p) => S.evaluate[p].every((e) => e.score));
     return `
-    ${head("evaluate", "At the end of the month, each of you answers independently. Hide your column while your partner answers, then compare together.")}
-    <div class="grid2">
-      ${P.map((p) => `<div class="card"><div class="row" style="justify-content:space-between">${tag(p)}
-        <button class="btn ghost sm" data-hide="${p}">${hiddenEval[p] ? "Show my answers" : "Hide my answers"}</button></div>
+    ${head("evaluate", "At the end of the month, each of you answers independently. Answer without looking at each other's, then compare together.")}
+    ${cols((p) => `<div class="row" style="justify-content:flex-end;margin-bottom:6px">
+        <button class="btn ghost sm" data-hide="${p}">${hiddenEval[p] ? "Show answers" : "Hide answers"}</button></div>
         <div class="${hiddenEval[p] ? "hidden-col" : ""}">
         ${EVAL_Q.map((q, i) => `<div class="fld"><span>${i + 1}. ${q}</span>
           <div class="seg" style="margin-bottom:8px">${Object.entries(VERDICT).map(([k, v]) => `<button class="${S.evaluate[p][i].score === k ? "on" : ""}" data-set="evaluate.${p}.${i}.score" data-val="${k}">${v}</button>`).join("")}</div>
           <input type="text" data-bind="evaluate.${p}.${i}.note" value="${esc(S.evaluate[p][i].note)}" placeholder="Why? (optional)" /></div>`).join("")}
-        </div></div>`).join("")}
-    </div>
+        </div>`)}
     ${done ? `<div class="card table-scroll" style="margin-top:18px"><h2>Side by side</h2>
       <table class="compare"><thead><tr><th>Question</th><th>${name("a")}</th><th>${name("b")}</th></tr></thead><tbody>
       ${EVAL_Q.map((q, i) => `<tr><td>${q}</td>${P.map((p) => { const e = S.evaluate[p][i]; return `<td><span class="verdict ${e.score}">${VERDICT[e.score]}</span>${e.note ? `<div class="muted" style="font-size:14px;margin-top:4px">${esc(e.note)}</div>` : ""}</td>`; }).join("")}</tr>`).join("")}
@@ -648,6 +632,34 @@
       <button class="btn" data-action="new-cycle">Start the next 30 days</button>
       <p class="muted" style="font-size:14px;margin-top:8px">Saves this month to your history, keeps your goals and clears the tracker, reviews and evaluation.</p>
       ${S.history.length ? `<p class="muted" style="font-size:14px">Cycles completed: ${S.history.length}</p>` : ""}
+    </div>`;
+  };
+
+  views.steps = () => {
+    const list = PHASES.map((ph) => {
+      const v = progress[ph.id]();
+      return `<li><a href="#${ph.id}" class="step-row"><span class="step-n ${v >= 1 ? "done" : ""}">${v >= 1 ? "✓" : ph.n}</span>
+        <span class="step-body"><span class="top-line"><span>${ph.title}</span><span>${pct(v)}%</span></span><span class="bar"><i style="width:${pct(v)}%"></i></span></span></a></li>`;
+    }).join("");
+    const synced = ["online", "saving", "offline"].includes(Sync.mode);
+    return `
+    <div class="phase-head"><div><div class="eyebrow">The ritual</div><h1>Steps</h1><p class="lead">Do steps 0–3 once, together. Then use Track daily and the Sunday Reset weekly.</p></div></div>
+    <div class="card"><ul class="plist steps">${list}</ul></div>
+    <h2 style="margin-top:26px">Settings</h2>
+    <div class="card stack">
+      <div class="grid2" style="gap:12px">
+        ${field("names.a", '<span class="dot a"></span> Partner one', { ph: "Name", rerender: true })}
+        ${field("names.b", '<span class="dot b"></span> Partner two', { ph: "Name", rerender: true })}
+      </div>
+      ${synced ? `<p class="muted" style="margin:0">This phone belongs to <strong>${name(Sync.me)}</strong>.</p>` :
+        `<div class="row"><span class="muted">This device is</span><div class="seg">${P.map((p) => `<button class="${viewer() === p ? "on" : ""}" data-viewer="${p}">${name(p)}</button>`).join("")}</div></div>`}
+      <p class="muted" style="margin:0">${synced ? "🔒 Shared only between the two of you, protected by your couple code." : "🔒 Saved on this device only."}</p>
+      <div class="row">
+        <button class="btn ghost sm" data-action="export">Export backup</button>
+        <label class="btn ghost sm">Import backup<input type="file" accept="application/json" id="importFile" hidden /></label>
+        ${synced ? `<button class="btn ghost sm" data-action="unlink">Disconnect this phone</button>` : ""}
+        <button class="btn ghost sm danger" data-action="wipe">Erase everything</button>
+      </div>
     </div>`;
   };
 
@@ -761,19 +773,14 @@
     </div>`;
   }
 
-  const viewerSwitch = () => Sync.me ? "" :
-    `<div class="row" style="margin-bottom:14px"><span class="muted">Viewing as</span><div class="seg">${P.map((p) => `<button class="${viewer() === p ? "on" : ""}" data-viewer="${p}">${name(p)}</button>`).join("")}</div></div>`;
 
   views.me = () => {
     const p = viewer(), wk = thisWeek(), them = other(p);
     const goals = S.goals[p];
     const lastReview = [...S.review].map((r, w) => [r, w]).reverse().find(([r]) => r[p].some(filled));
     return `
-    ${viewerSwitch()}
-    <div class="phase-head"><div><div class="eyebrow">My space</div><h1>Hi ${name(p)} 👋</h1><p class="lead">Your goals and this week's follow-through. Tap a button each time you act on a goal.</p></div>
-      <a class="btn" href="#us">See ${name(them)}'s growth →</a></div>
-    ${statTiles(p)}
-    <div class="card" style="margin-top:18px"><div class="row" style="justify-content:space-between"><h2 style="margin:0">${meWeek(wk) === wk ? "This week" : "Looking back"} · Week ${meWeek(wk) + 1}</h2>
+    <div class="phase-head"><div><div class="eyebrow">My space</div><h1>Hi ${name(p)} 👋</h1><p class="lead">Tap ✓ each time you act on a goal.</p></div></div>
+    <div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">${meWeek(wk) === wk ? "This week" : "Looking back"} · Week ${meWeek(wk) + 1}</h2>
       <div class="seg">${arr(WEEKS, (w) => `<button class="${w === meWeek(wk) ? "on" : ""}" data-meweek="${w}">W${w + 1}</button>`).join("")}</div></div>
       ${goals.map((g, i) => {
         const c = S.track[p][i][meWeek(wk)];
@@ -784,6 +791,7 @@
       }).join("")}
       <p class="muted" style="font-size:14px;margin:8px 0 0">Goal ${goals.map((_, i) => `${i + 1}: ${pctOr(goalRate(p, i))}`).join(" · ")} across all weeks.</p>
     </div>
+    <div style="margin-top:18px">${statTiles(p)}</div>
     <div class="grid2" style="margin-top:18px">
       <div class="card"><h3>What ${name(them)} appreciates about me</h3>
         ${S.rewards.appreciate[them].some(filled) ? `<ul class="ritual">${S.rewards.appreciate[them].filter(filled).map((a) => `<li>${esc(a)}</li>`).join("")}</ul>` : `<p class="muted">Nothing yet.</p>`}</div>
@@ -806,7 +814,6 @@
         <div class="track"><i style="width:${r == null ? 0 : pct(r)}%;background:${SERIES[p]}"></i></div></div>`;
     }).join("");
     return `
-    ${viewerSwitch()}
     <div class="phase-head"><div><div class="eyebrow">Insights</div><h1>Our growth</h1><p class="lead">How you're both following through, and everything ${name(them)} has shared.</p></div></div>
     <div class="card"><h2>Weekly follow-through</h2><p class="muted" style="font-size:14px">✓ counts 100%, ~ counts 50%, ✕ counts 0%. Only marked squares count.</p>
       ${legend()}${lineChart()}${chartTable()}</div>
@@ -833,28 +840,26 @@
   /* ---------------- routing / render ---------------- */
   function route() { const h = location.hash.slice(1); return views[h] ? h : "dashboard"; }
 
+  const TABS = [["dashboard", "♥", "Heart"], ["me", "★", "Me"], ["us", "↗", "Us"], ["steps", "☰", "Steps"]];
   function renderNav() {
     const cur = route();
-    document.getElementById("nav").innerHTML =
-      `<a class="pill" href="#dashboard" ${cur === "dashboard" ? 'aria-current="page"' : ""} style="--p:${overall()}"><span class="num">♥</span>Heart</a>` +
-      `<a class="pill" href="#me" ${cur === "me" ? 'aria-current="page"' : ""}><span class="num">★</span>Me</a>` +
-      `<a class="pill" href="#us" ${cur === "us" ? 'aria-current="page"' : ""}><span class="num">↗</span>Us</a>` +
-      PHASES.map((ph) => `<a class="pill" href="#${ph.id}" ${cur === ph.id ? 'aria-current="page"' : ""} style="--p:${progress[ph.id]()}"><span class="num">${ph.n}</span>${ph.short}</a>`).join("");
-    document.querySelector(".pill[aria-current]")?.scrollIntoView({ block: "nearest", inline: "center" });
+    const active = PHASES.some((ph) => ph.id === cur) ? "steps" : cur;
+    document.getElementById("tabs").innerHTML = TABS.map(([id, ic, label]) =>
+      `<a href="#${id}" ${active === id ? 'aria-current="page"' : ""}><span class="ti">${ic}</span>${label}</a>`).join("");
+    document.body.classList.toggle("compact", cur !== "dashboard");
   }
 
   function render(scrollTop = false) {
     Sync.dirty = false;
-    document.querySelector(".foot-actions").hidden = Sync.mode === "locked";
     if (Sync.mode === "locked") {
       stopTimerIfLeaving("connect");
-      document.getElementById("nav").innerHTML = "";
+      document.getElementById("tabs").innerHTML = "";
       document.getElementById("view").innerHTML = connectView();
       return;
     }
     const cur = route();
     stopTimerIfLeaving(cur);
-    document.getElementById("view").innerHTML = views[cur]();
+    document.getElementById("view").innerHTML = views[cur]() + (PHASES.some((ph) => ph.id === cur) ? stepper(cur) : "");
     renderNav();
     if (cur === "talk") paintTimer();
     if (scrollTop) window.scrollTo({ top: 0 });
@@ -864,7 +869,7 @@
     renderNav();
     const eb = document.querySelector(".phase-head .eyebrow");
     const cur = route(), ph = PHASES.find((x) => x.id === cur);
-    if (eb && ph) eb.textContent = `Phase ${ph.n} · ${pct(progress[cur]())}% mended`;
+    if (eb && ph) eb.textContent = `Step ${ph.n} · ${pct(progress[cur]())}% done`;
   }
 
   /* ---------------- timer ---------------- */
@@ -1009,7 +1014,8 @@
   });
   document.addEventListener("change", (e) => { if (e.target.dataset && "rerender" in e.target.dataset) render(); });
 
-  document.getElementById("importFile").addEventListener("change", async (e) => {
+  document.addEventListener("change", async (e) => {
+    if (e.target.id !== "importFile") return;
     const f = e.target.files[0]; if (!f) return;
     try {
       const data = JSON.parse(await f.text());

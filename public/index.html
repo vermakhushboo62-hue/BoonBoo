@@ -32,19 +32,11 @@
     <p id="sync" class="sync" role="status"></p>
   </header>
 
-  <nav class="phases" id="nav" aria-label="Phases"></nav>
 
   <main id="view" tabindex="-1"></main>
 
-  <footer class="foot">
-    <p id="privacy">🔒 Everything stays on this device — nothing is sent anywhere.</p>
-    <div class="foot-actions">
-      <button class="btn ghost sm" data-action="export">Export backup</button>
-      <label class="btn ghost sm">Import backup<input type="file" accept="application/json" id="importFile" hidden /></label>
-      <button class="btn ghost sm" data-action="unlink" id="unlinkBtn" hidden>Disconnect this phone</button>
-      <button class="btn ghost sm danger" data-action="wipe">Erase everything</button>
-    </div>
-  </footer>
+
+  <nav class="tabs" id="tabs" aria-label="Main"></nav>
 
   <div id="toast" role="status" aria-live="polite"></div>
   <div id="tip" role="tooltip" hidden></div>
