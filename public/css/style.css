@@ -351,6 +351,17 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
 .step-body .top-line { display: flex; }
 .step-body .bar { display: block; }
 
+/* ---------- notes for each other ---------- */
+.love-head { margin: 28px 0 12px; }
+.love-head h2 { margin: 4px 0 4px; }
+.card.love {
+  background:
+    linear-gradient(160deg, rgba(255,43,214,0.16), rgba(18,6,40,0.86) 55%) padding-box,
+    linear-gradient(135deg, #ff2bd6, #ff7a1a, #ffe14d) border-box;
+}
+.card.love p strong { color: var(--sun); font-weight: 600; }
+.note { padding: 6px 0; }
+
 /* ---------- misc ---------- */
 .foot { max-width: 1180px; margin: 0 auto; padding: 18px 16px 40px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: center; color: var(--muted); font-size: 14px; }
 .foot-actions { display: flex; gap: 8px; flex-wrap: wrap; }

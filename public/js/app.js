@@ -73,6 +73,12 @@
   /* ---------------- state ---------------- */
   const arr = (n, f) => Array.from({ length: n }, (_, i) => (typeof f === "function" ? f(i) : f));
   const blankGoal = () => ({ what: "", freq: "", proof: "", measurable: "" });
+  const blankNote = () => ({ loved: "", growing: "", support: "" });
+  const NOTE_Q = [
+    ["loved", (n) => `What I loved about ${n} this week`, "The moment I noticed, what you did, how it felt…"],
+    ["growing", (n) => `How I see ${n} growing`, "What's changing in you that I'm proud of…"],
+    ["support", (n) => `How I'll support ${n} next week`, "One concrete thing I'll do to help you grow…"],
+  ];
 
   function fresh() {
     return {
@@ -85,6 +91,8 @@
       track: { a: arr(3, () => arr(WEEKS, "")), b: arr(3, () => arr(WEEKS, "")), notes: arr(WEEKS, () => ({ well: "", improve: "" })) },
       rewards: { weekly: "", monthly: "", earned: arr(WEEKS, false), monthlyEarned: false, appreciate: { a: arr(3, ""), b: arr(3, "") } },
       review: arr(WEEKS, () => ({ a: arr(5, ""), b: arr(5, ""), corrective: "" })),
+      // weekly notes for each other: notes[week][writer] is what the writer says about their partner
+      notes: arr(WEEKS, () => ({ a: blankNote(), b: blankNote() })),
       evaluate: { a: arr(5, () => ({ score: "", note: "" })), b: arr(5, () => ({ score: "", note: "" })), next: "" },
       history: [],
     };
@@ -457,11 +465,11 @@
   const views = {};
 
   // Your own column first and open; your partner's folded underneath.
-  function cols(fn, cls = "") {
+  function cols(fn, cls = "", summary = (n) => `${n}'s side`) {
     const me = viewer(), them = other(me);
     return `<div class="cols">
       <div class="card ${cls}">${tag(me)}${fn(me)}</div>
-      <details class="card partner ${cls}"><summary><span class="dot ${them}"></span>${name(them)}'s side<span class="chev">▾</span></summary>${fn(them)}</details>
+      <details class="card partner ${cls}"><summary><span class="dot ${them}"></span>${summary(name(them))}<span class="chev">▾</span></summary>${fn(them)}</details>
     </div>`;
   }
 
@@ -607,7 +615,10 @@
     <div class="card" style="margin-top:18px">
       ${field(`review.${w}.corrective`, "If someone missed a goal: why, and what's our corrective action?", { area: true, ph: "Discuss the reason, agree on one concrete fix." })}
       <p class="muted" style="margin:0">Don't turn the review into a trial.</p>
-    </div>`;
+    </div>
+    <div class="love-head"><span class="eyebrow">💌 For each other</span><h2>Notes for week ${w + 1}</h2>
+      <p class="muted">Write to each other, not about the tracker. Read them aloud at the end of your reset.</p></div>
+    ${cols((p) => NOTE_Q.map(([k, label, ph]) => field(`notes.${w}.${p}.${k}`, label(name(other(p))), { area: true, ph })).join(""), "love", (n) => `${n}'s note to you`)}`;
   };
 
   const hiddenEval = { a: false, b: false };
@@ -745,6 +756,7 @@
       case "track": return k[1] === "notes" ? `wrote week ${n(2)} notes` : `marked goal ${n(2)}, week ${n(3)}: ${{ done: "✓ done", partial: "~ partly", missed: "✕ missed", "": "cleared" }[get(path)] ?? "updated"}`;
       case "rewards": return k[1] === "appreciate" ? "shared an appreciation 💗" : k[1] === "earned" || k[1] === "monthlyEarned" ? "marked a reward earned ★" : "updated the rewards";
       case "review": return `wrote their Sunday review (week ${n(1)})`;
+      case "notes": return `wrote you a note 💌 (week ${n(1)})`;
       case "evaluate": return "answered the 30-day evaluation";
       case "names": return "changed the names";
       case "startDate": return "started the 30 days";
@@ -774,12 +786,29 @@
   }
 
 
+  const noteHas = (n) => n && NOTE_Q.some(([k]) => filled(n[k]));
+  // latest week in which `writer` wrote a note
+  const lastNote = (writer) => { for (let w = WEEKS - 1; w >= 0; w--) if (noteHas(S.notes[w][writer])) return w; return -1; };
+  function noteBody(n, about) {
+    return NOTE_Q.filter(([k]) => filled(n[k])).map(([k, label]) => `<p><strong>${label(about)}</strong><br>${esc(n[k])}</p>`).join("");
+  }
+  function loveCard(me) {
+    const them = other(me), w = lastNote(them), wk = thisWeek();
+    const mineDone = noteHas(S.notes[wk][me]);
+    return `<div class="card love">
+      <div class="row" style="justify-content:space-between"><div class="eyebrow">💌 From ${name(them)}${w >= 0 ? ` · week ${w + 1}` : ""}</div>
+        <a class="btn ${mineDone ? "ghost" : ""} sm" href="#review" data-week-go="${wk}">${mineDone ? "Edit my note" : `Write to ${name(them)}`}</a></div>
+      ${w >= 0 ? noteBody(S.notes[w][them], "you") : `<p class="muted">${name(them)} hasn't written a note yet. Notes are written during the Sunday Reset.</p>`}
+    </div>`;
+  }
+
   views.me = () => {
     const p = viewer(), wk = thisWeek(), them = other(p);
     const goals = S.goals[p];
     const lastReview = [...S.review].map((r, w) => [r, w]).reverse().find(([r]) => r[p].some(filled));
     return `
     <div class="phase-head"><div><div class="eyebrow">My space</div><h1>Hi ${name(p)} 👋</h1><p class="lead">Tap ✓ each time you act on a goal.</p></div></div>
+    <div style="margin-bottom:18px">${loveCard(p)}</div>
     <div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">${meWeek(wk) === wk ? "This week" : "Looking back"} · Week ${meWeek(wk) + 1}</h2>
       <div class="seg">${arr(WEEKS, (w) => `<button class="${w === meWeek(wk) ? "on" : ""}" data-meweek="${w}">W${w + 1}</button>`).join("")}</div></div>
       ${goals.map((g, i) => {
@@ -824,6 +853,16 @@
       <div class="card"><h2>Recent from ${name(them)}</h2>${feed(them)}</div>
       <div class="card"><h2>${name(them)}'s goals</h2>
         ${g.map((gg, i) => `<p><strong>Goal ${i + 1}:</strong> ${esc(gg.measurable || gg.what) || '<span class="muted">not written yet</span>'}${filled(gg.freq) ? `<br><span class="muted">${esc(gg.freq)}${filled(gg.proof) ? " · Proof: " + esc(gg.proof) : ""}</span>` : ""}</p>`).join("")}</div>
+    </div>
+    <div class="card love" style="margin-top:18px"><div class="eyebrow">💌 Notes for each other</div><h2>How we see each other growing</h2>
+      ${(() => {
+        const weeks = arr(WEEKS, (w) => w).reverse().filter((w) => P.some((p) => noteHas(S.notes[w][p])));
+        if (!weeks.length) return `<p class="muted">Your weekly notes will collect here. Write them during the <a href="#review">Sunday Reset</a>.</p>`;
+        return weeks.map((w, i) => `<details ${i === 0 ? "open" : ""}><summary>Week ${w + 1}</summary><div class="grid2">
+          ${P.map((p) => `<div class="note"><div class="person-tag" style="font-size:16px"><span class="dot ${p}"></span>${name(p)} → ${name(other(p))}</div>
+            ${noteHas(S.notes[w][p]) ? noteBody(S.notes[w][p], name(other(p))) : `<p class="muted">Not written.</p>`}</div>`).join("")}
+        </div></details>`).join("");
+      })()}
     </div>
     <div class="card" style="margin-top:18px"><h2>${name(them)}'s responses</h2>
       <details open><summary>Latest Sunday review${lastReview ? ` · Week ${lastReview[1] + 1}` : ""}</summary>
@@ -948,8 +987,8 @@
     "new-cycle"() {
       if (!confirm("Start the next 30 days? This month is saved to history; goals stay, the tracker, reviews and evaluation are cleared.")) return;
       const f = fresh();
-      S.history.push({ ended: today(), startDate: S.startDate, goals: S.goals, track: S.track, evaluate: S.evaluate, rewards: S.rewards });
-      Object.assign(S, { startDate: today(), track: f.track, review: f.review, evaluate: { ...f.evaluate, next: "" },
+      S.history.push({ ended: today(), startDate: S.startDate, goals: S.goals, track: S.track, evaluate: S.evaluate, rewards: S.rewards, notes: S.notes });
+      Object.assign(S, { startDate: today(), track: f.track, review: f.review, notes: f.notes, evaluate: { ...f.evaluate, next: "" },
         rewards: { ...S.rewards, earned: f.rewards.earned, monthlyEarned: false, appreciate: f.rewards.appreciate } });
       save(); reviewWeek = null; location.hash = "#dashboard"; render(true); confetti(120);
     },
@@ -971,12 +1010,13 @@
   };
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-action],[data-cycle],[data-toggle],[data-fill],[data-week],[data-set],[data-hide],[data-go],[data-me],[data-meweek],[data-viewer]");
+    const t = e.target.closest("[data-action],[data-cycle],[data-toggle],[data-fill],[data-week],[data-set],[data-hide],[data-go],[data-me],[data-meweek],[data-viewer],[data-week-go]");
     if (!t) return;
     const d = t.dataset;
     if (d.action) return actions[d.action]?.();
     if (d.me) { connectAs = d.me; const code = document.getElementById("coupleCode")?.value || ""; render(); const c = document.getElementById("coupleCode"); if (c) { c.value = code; c.focus(); } return; }
     if (d.go) { location.hash = "#" + d.go; return; }
+    if (d.weekGo) { reviewWeek = Number(d.weekGo); }
     if (d.cycle) {
       const next = CELL_NEXT[get(d.cycle)]; set(d.cycle, next); save();
       t.className = "cell " + next; t.textContent = CELL[next];
