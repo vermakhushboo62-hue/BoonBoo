@@ -362,6 +362,25 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
 .card.love p strong { color: var(--sun); font-weight: 600; }
 .note { padding: 6px 0; }
 
+/* ---------- simple ritual ---------- */
+.top { position: relative; }
+.gear {
+  position: absolute; top: calc(18px + env(safe-area-inset-top)); right: 16px;
+  width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 20px; color: var(--ink); text-decoration: none;
+  background: rgba(0,0,0,0.35); border: 1px solid var(--line);
+}
+body.compact .gear { position: static; flex: 0 0 auto; }
+body.compact .top .sync { margin-left: auto; }
+.srow { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.srow > span:first-child { color: var(--muted); }
+.srow > span:last-child { text-align: right; font-weight: 600; }
+.status { font-size: 13px; padding: 3px 10px; border-radius: 99px; background: rgba(255,255,255,0.1); color: var(--muted); white-space: nowrap; }
+.status.ok { background: var(--done); color: #102000; }
+.received { margin-top: 12px; padding: 12px 14px; border-radius: 14px; background: rgba(0,0,0,0.28); border-left: 3px solid var(--sun); }
+.received strong { color: var(--sun); font-weight: 600; }
+.chip { color: var(--ink); }
+
 /* ---------- misc ---------- */
 .foot { max-width: 1180px; margin: 0 auto; padding: 18px 16px 40px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: center; color: var(--muted); font-size: 14px; }
 .foot-actions { display: flex; gap: 8px; flex-wrap: wrap; }

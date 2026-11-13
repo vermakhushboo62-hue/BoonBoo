@@ -1,24 +1,17 @@
 # BoonBoo 💗
 
-A 30-day ritual for two, wrapped in a psychedelic UI. The dashboard is a **broken heart**:
-each of its 8 pieces is one phase. A piece turns red and moves back into place as you
-complete that phase together, mending from the top down. At 100% the cracks disappear and
-the heart beats again.
+A gentle ritual for two, wrapped in a psychedelic UI. Each of you uses it on your own phone,
+and everything you write is shared right away.
 
-Each of you uses BoonBoo on your own phone, and everything is shared right away.
-
-## Phases (heart pieces)
-
-| # | Phase | Mended when… |
-|---|-------|--------------|
-| 0 | Ground Rules | both partners agree to all six rules |
-| 1 | One Honest Conversation | both answer the five questions (equal-time timer included) |
-| 2 | Three Goals Each | each goal has *what / how often / how my partner will know* |
-| 3 | Measurable Commitments | each goal is rewritten as an observable commitment |
-| 4 | Progress Tracker | 4 weeks × 3 goals marked ✓ / ~ / ✕ for each person ("Copy weekly tracker" included) |
-| 5 | Rewards | weekly + 30-day rewards agreed, three appreciations each |
-| 6 | The Sunday Reset | the 20-minute weekly review is done for weeks 1–4 |
-| 7 | 30-Day Evaluation | both answer, compare side by side, start the next cycle |
+- **Every Sunday (💌 Week):** write each other a short note: what you're thankful for, what
+  you appreciated that week, and how you've noticed them growing. Then read them aloud.
+- **Once a month (🌱 Month):** each choose one small thing to practise for yourself. Your
+  partner doesn't track it; they write what they've *noticed*. At month end you each
+  reflect, celebrate, and start a new month.
+- **The heart (♥ Heart):** the left half is partner one's notes and the right half is
+  partner two's, top to bottom = weeks 1–4. Each Sunday you both write, two pieces mend.
+- **↗ Us:** all your notes week by week, both goals with what the other noticed, recent
+  activity and past months. ⚙︎ holds names, backup and the gentle rules.
 
 ## Structure
 
