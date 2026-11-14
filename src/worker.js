@@ -1,6 +1,11 @@
 // BoonBoo Worker: serves the app from public/ and the shared-save API under /api/.
+import Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
+import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
+
 //   GET  /api/changes?since=N  → fields changed after sequence number N
 //   POST /api/patch            → save changed fields { by: "a"|"b", changes: [{ path, value }] }
+//   POST /api/insights         → Claude reads the couple's answers and suggests couple tasks
 // Every request to /api/* needs the couple code (secret BOONBOO_KEY) in the x-boonboo-key header.
 
 const SCHEMA = [
@@ -12,6 +17,7 @@ const SCHEMA = [
      updated_at INTEGER NOT NULL
    )`,
   `CREATE INDEX IF NOT EXISTS fields_seq ON fields (seq)`,
+  `CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)`,
 ];
 let ready = false;
 
@@ -65,6 +71,109 @@ async function patch(request, env) {
   return json({ ok: true });
 }
 
+/* ---------------- AI insights ----------------
+   The prompt is built here from what's in the database, never from the request body. */
+
+const Insights = z.object({
+  summary: z.string(),
+  strengths: z.array(z.string()),
+  growth: z.array(z.string()),
+  tasks: z.array(z.object({ title: z.string(), why: z.string(), when: z.string() })),
+  care_note: z.string(),
+});
+
+const SYSTEM = `You are the gentle guide inside BoonBoo, an app a couple uses together to appreciate each other.
+You read what both partners have written and reply to both of them at once.
+
+How to write:
+- Warm, plain and specific. Use their names and echo their own words where you can.
+- Never take sides, assign blame, diagnose, or label either person.
+- Frame growth as something they do together, not something one partner must fix.
+- Keep it short: this is read on a phone.
+
+What to return:
+- summary: 2-3 sentences on what this relationship means to them and where it's heading.
+- strengths: 2-3 things that are clearly working between them.
+- growth: 2-3 gentle areas to grow together, each one sentence.
+- tasks: 3-5 small couple tasks they can actually do soon. Each has a short title (under 8 words),
+  a one-sentence "why" tied to something they wrote, and "when" (e.g. "This week", "Every evening",
+  "This weekend", "This month"). Favour tasks that match how each of them likes to feel loved.
+- care_note: empty string, unless something they wrote suggests fear, harm, control or a crisis;
+  then one kind sentence encouraging them to talk to a qualified counsellor or local support service.`;
+
+const QUESTIONS = {
+  meaning: "What this relationship means to me",
+  love: "What I love most about us",
+  improve: "What I'd like us to improve",
+  need: "What I need more of from my partner",
+  feel: "How I most feel loved",
+};
+
+const FEEL_LABELS = { words: "kind words", time: "quality time", help: "help with things", touch: "hugs and closeness", gifts: "little surprises" };
+
+async function insights(env) {
+  if (!env.ANTHROPIC_API_KEY) return json({ error: "AI suggestions aren't switched on yet.", code: "ai-off" }, 503);
+
+  const last = await env.DB.prepare("SELECT v FROM meta WHERE k = 'ai_last'").first();
+  if (last && Date.now() - Number(last.v) < 60_000) return json({ error: "Give it a minute before asking again." }, 429);
+
+  const { results } = await env.DB
+    .prepare("SELECT path, value FROM fields WHERE path LIKE 'about.%' OR path LIKE 'names.%' OR path LIKE 'month.%' OR path LIKE 'week.%'")
+    .all();
+  const d = {};
+  for (const r of results) { try { d[r.path] = JSON.parse(r.value); } catch { /* skip */ } }
+  const name = (p) => (typeof d[`names.${p}`] === "string" && d[`names.${p}`].trim()) || (p === "a" ? "Partner A" : "Partner B");
+  const has = (v) => typeof v === "string" && v.trim().length > 0;
+
+  const answered = ["a", "b"].filter((p) => Object.keys(QUESTIONS).some((k) => has(d[`about.${p}.${k}`])));
+  if (!answered.length) return json({ error: "Answer the welcome questions first." }, 400);
+
+  const lines = [];
+  for (const p of ["a", "b"]) {
+    const other = name(p === "a" ? "b" : "a");
+    lines.push(`## ${name(p)}`);
+    for (const [k, q] of Object.entries(QUESTIONS)) {
+      let v = d[`about.${p}.${k}`];
+      if (!has(v)) continue;
+      if (k === "feel") v = v.split(",").map((x) => FEEL_LABELS[x] || x).join(", ");
+      lines.push(`- ${q}: ${v}`);
+    }
+    if (has(d[`month.${p}.goal`])) lines.push(`- Their goal this month: ${d[`month.${p}.goal`]}`);
+    if (has(d[`month.${p}.observe`])) lines.push(`- What they've noticed about ${other}'s goal: ${d[`month.${p}.observe`]}`);
+    for (let w = 0; w < 4; w++) {
+      const note = ["thankful", "appreciated", "noticed"].map((k) => d[`week.${w}.${p}.${k}`]).filter(has);
+      if (note.length) lines.push(`- Week ${w + 1} note to ${other}: ${note.join(" / ")}`);
+    }
+    if (!answered.includes(p)) lines.push(`- (${name(p)} hasn't answered the welcome questions yet.)`);
+    lines.push("");
+  }
+
+  await env.DB.prepare("INSERT INTO meta (k, v) VALUES ('ai_last', ?1) ON CONFLICT (k) DO UPDATE SET v = excluded.v")
+    .bind(String(Date.now())).run();
+
+  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, ...(env.ANTHROPIC_BASE_URL ? { baseURL: env.ANTHROPIC_BASE_URL } : {}) });
+  try {
+    const msg = await client.beta.messages.parse({
+      model: "claude-opus-5-5",
+      max_tokens: 16000,
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+      output_config: { effort: "medium", format: betaZodOutputFormat(Insights) },
+      system: SYSTEM,
+      messages: [{ role: "user", content: `Here is what ${name("a")} and ${name("b")} have shared in BoonBoo:\n\n${lines.join("\n")}` }],
+    });
+    if (msg.stop_reason === "refusal" || !msg.parsed_output) {
+      return json({ error: "Couldn't create suggestions this time. Please try again later." }, 502);
+    }
+    return json({ insights: msg.parsed_output, at: Date.now() });
+  } catch (err) {
+    if (err instanceof Anthropic.RateLimitError) return json({ error: "The AI is busy right now. Try again in a minute." }, 429);
+    if (err instanceof Anthropic.AuthenticationError) return json({ error: "The AI key isn't valid. Check ANTHROPIC_API_KEY in Cloudflare." }, 502);
+    if (err instanceof Anthropic.APIError) return json({ error: "The AI couldn't answer right now. Try again later." }, 502);
+    throw err;
+  }
+}
+
 async function api(request, env, url) {
   if (!env.DB || !env.BOONBOO_KEY) {
     return json({ error: "BoonBoo isn't set up yet: it needs the D1 binding DB and the BOONBOO_KEY secret." }, 503);
@@ -78,6 +187,7 @@ async function api(request, env, url) {
 
   if (url.pathname === "/api/changes" && request.method === "GET") return changes(url, env);
   if (url.pathname === "/api/patch" && request.method === "POST") return patch(request, env);
+  if (url.pathname === "/api/insights" && request.method === "POST") return insights(env);
   return json({ error: "Not found." }, 404);
 }
 

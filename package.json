@@ -1,0 +1,11 @@
+{
+  "name": "boonboo",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "BoonBoo \u2014 a gentle ritual for two",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
+    "zod": "^4.6.7"
+  }
+}

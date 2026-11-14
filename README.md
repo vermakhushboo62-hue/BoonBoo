@@ -13,6 +13,20 @@ and everything you write is shared right away.
 - **↗ Us:** all your notes week by week, both goals with what the other noticed, recent
   activity and past months. ⚙︎ holds names, backup and the gentle rules.
 
+## Welcome questions & AI couple tasks
+
+After logging in, each partner answers five short questions (what this relationship means to
+you, what you love about us, what you'd like to improve, what you need more of, how you feel
+loved). On the Heart page, **Suggest couple tasks** asks Claude (Opus 5.5, via the Worker) to
+read both partners' answers, notes and goals and return a short reflection, what's working,
+gentle areas to grow, and 3–5 small couple tasks you can tick off together.
+
+- Turn it on: Cloudflare → Workers & Pages → `boonboo` → Settings → Variables and Secrets →
+  add a **Secret** named `ANTHROPIC_API_KEY` (from console.anthropic.com), then deploy.
+- Without the key, BoonBoo shows built-in starter ideas based on how you each feel loved.
+- The prompt is built on the server from your saved answers; one request per minute at most.
+- If a request is declined, it automatically retries on a fallback model (`fallbacks: "default"`).
+
 ## Structure
 
 ```

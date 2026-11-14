@@ -25,11 +25,29 @@
   ];
   const VERDICT = { yes: "Yes 🌟", growing: "Growing 🌱", no: "Not yet" };
 
+  // Welcome questions each partner answers once (shared, and read by the AI guide)
+  const ABOUT_Q = [
+    ["meaning", "What does this relationship mean to you?", "In your own words, big or small"],
+    ["love", "What do you love most about us?", "The things that make us, us"],
+    ["improve", "What would you like us to improve?", "Gently: what would make us even better"],
+    ["need", (n) => `What do you need more of from ${n}?`, "Time, words, help, closeness…"],
+  ];
+  const FEEL = [["words", "Kind words"], ["time", "Quality time"], ["help", "Help with things"], ["touch", "Hugs & closeness"], ["gifts", "Little surprises"]];
+  const STARTER_TASKS = {
+    words: { title: "Leave each other a note", why: "Kind words land best when they're unexpected.", when: "This week" },
+    time: { title: "A phone-free walk together", why: "Twenty minutes with nothing else competing for you.", when: "This weekend" },
+    help: { title: "Swap one chore you each dislike", why: "Taking something off their plate says “I see you”.", when: "This week" },
+    touch: { title: "A long hug before the day starts", why: "Closeness first thing sets the tone for the day.", when: "Every morning" },
+    gifts: { title: "A tiny surprise under five", why: "It's the thought: proof you were thinking of them.", when: "This week" },
+    ask: { title: "Ask three curious questions", why: "Find out something new about each other.", when: "One evening" },
+  };
+
   /* ---------------- state ---------------- */
   const arr = (n, f) => Array.from({ length: n }, (_, i) => (typeof f === "function" ? f(i) : f));
   const blankNote = () => ({ thankful: "", appreciated: "", noticed: "" });
   // month[p]: p's own goal and end-of-month reflection, plus p's observation of the partner's progress
   const blankGoal = () => ({ goal: "", notice: "", observe: "", score: "", reflect: "" });
+  const blankAbout = () => ({ meaning: "", love: "", improve: "", need: "", feel: "", done: false });
 
   function fresh() {
     return {
@@ -38,6 +56,9 @@
       startDate: null,
       week: arr(WEEKS, () => ({ a: blankNote(), b: blankNote() })),   // week[w][p] = p's note to the partner
       month: { a: blankGoal(), b: blankGoal(), celebrate: "" },
+      about: { a: blankAbout(), b: blankAbout() },
+      ai: "",                    // latest AI insights, stored as one JSON string
+      aiDone: arr(6, false),     // couple tasks ticked off
       history: [],
     };
   }
@@ -423,6 +444,7 @@
       </div>
       <div class="stack">
         ${start}
+        ${insightsCard()}
         <div class="card">
           <div class="row" style="justify-content:space-between"><div class="eyebrow">💌 This week${day ? ` · week ${wk + 1} of ${WEEKS}` : ""}</div>
             <span class="muted" style="font-size:14px">${sunday ? "It's Sunday ✨" : `Next: ${fmtDate(nextSunday())}`}</span></div>
@@ -499,6 +521,9 @@
       case "month":
         if (k[1] === "celebrate") return "planned the celebration 🎉";
         return { goal: "chose their goal for the month 🌱", notice: "chose their goal for the month 🌱", observe: "noticed your progress 👀", score: "reflected on their month", reflect: "reflected on their month" }[k[2]] || "updated the month";
+      case "about": return "answered the welcome questions 💬";
+      case "ai": return "got new couple tasks ✨";
+      case "aiDone": return "ticked off a couple task ✅";
       case "names": return "changed the names";
       case "startDate": return "started the month";
       default: return "made an update";
@@ -510,7 +535,7 @@
     if (s < 86400) return Math.round(s / 3600) + " h ago"; return Math.round(s / 86400) + " d ago";
   }
   function feed(p, limit = 6) {
-    const items = Object.entries(Sync.meta).filter(([path, m]) => m.by === p && /^(week|month|names|startDate)/.test(path)).sort((a, b) => b[1].at - a[1].at);
+    const items = Object.entries(Sync.meta).filter(([path, m]) => m.by === p && /^(week|month|names|startDate|about|ai)/.test(path)).sort((a, b) => b[1].at - a[1].at);
     const out = []; const seen = new Set();
     for (const [path, m] of items) { const l = label(path); if (seen.has(l)) continue; seen.add(l); out.push(`<li><span>${esc(l)}</span><span class="muted">${ago(m.at)}</span></li>`); if (out.length >= limit) break; }
     if (!out.length) return `<p class="muted">${Sync.mode === "local" ? "Activity shows here once you're both connected." : `Nothing from ${name(p)} yet.`}</p>`;
@@ -526,8 +551,18 @@
             ${noteHas(S.week[w][p]) ? noteBody(S.week[w][p], name(other(p))) : `<p class="muted">Not written.</p>`}</div>`).join("")}
         </div></details>`).join("")
       : `<p class="muted">Your weekly notes collect here. Write the first one on the <a href="#week">Week</a> tab.</p>`;
+    const ai = aiData();
+    const aboutBlock = P.some((p) => ABOUT_Q.some(([k]) => filled(S.about[p][k]))) ? `<div class="card" style="margin-top:16px"><div class="eyebrow">💬 What this means to us</div>
+      <div class="grid2">${P.map((p) => `<div class="note">${tag(p)}${ABOUT_Q.filter(([k]) => filled(S.about[p][k])).map(([k, q]) =>
+        `<p><strong>${aboutLabel(q, name(other(p)))}</strong><br>${esc(S.about[p][k])}</p>`).join("")}
+        ${feelSet(p).size ? `<p><strong>Feels most loved through</strong><br>${FEEL.filter(([k]) => feelSet(p).has(k)).map(([, l]) => l).join(", ")}</p>` : ""}</div>`).join("")}</div></div>` : "";
+    const aiBlock = ai ? `<div class="card" style="margin-top:16px"><div class="eyebrow">✨ What BoonBoo sees</div><p>${esc(ai.summary)}</p>
+      <h3>Working well</h3><ul class="ritual">${ai.strengths.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+      <h3>Growing together</h3><ul class="ritual">${ai.growth.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+      <p class="muted" style="font-size:13px;margin:8px 0 0">Suggested ${ago(ai.at)}. A reflection to talk about, not a judgement.</p></div>` : "";
     return `
     ${head("Us", "How we see each other")}
+    ${aiBlock}${aboutBlock}
     <div class="card love"><div class="eyebrow">💌 Our notes</div>${timeline}</div>
     <div class="grid2" style="margin-top:16px">
       ${P.map((p) => `<div class="card">${tag(p)}
@@ -540,6 +575,73 @@
     ${S.history.length ? `<div class="card" style="margin-top:16px"><h3>Past months</h3><ul class="feed">${S.history.slice().reverse().map((h) =>
       `<li><span>${h.startDate ? new Date(h.startDate + "T00:00:00").toLocaleDateString(undefined, { month: "long", year: "numeric" }) : "A month"} · ${P.map((p) => esc(h.month?.[p]?.goal || "—")).join(" · ")}</span></li>`).join("")}</ul></div>` : ""}`;
   };
+
+  /* ---------------- welcome questions ---------------- */
+  let welcomeStep = 0;
+  const aboutLabel = (q, them) => (typeof q === "function" ? q(them) : q);
+  const feelSet = (p) => new Set((S.about[p].feel || "").split(",").filter(Boolean));
+  const needsWelcome = () => !S.about[viewer()].done;
+
+  views.welcome = () => {
+    const me = viewer(), them = other(me), total = ABOUT_Q.length + 1, i = Math.min(welcomeStep, total - 1);
+    const dots = arr(total, (k) => `<i class="${k <= i ? "on" : ""}"></i>`).join("");
+    let body;
+    if (i < ABOUT_Q.length) {
+      const [k, q, ph] = ABOUT_Q[i];
+      body = `<h1 class="q">${aboutLabel(q, name(them))}</h1>
+        <textarea class="big" data-bind="about.${me}.${k}" placeholder="${esc(ph)}" autofocus>${esc(S.about[me][k])}</textarea>`;
+    } else {
+      const set = feelSet(me);
+      body = `<h1 class="q">How do you most feel loved?</h1><p class="muted">Pick any that fit.</p>
+        <div class="feel">${FEEL.map(([k, l]) => `<button class="chip ${set.has(k) ? "on" : ""}" data-feel="${k}">${l}</button>`).join("")}</div>`;
+    }
+    return `<section class="card welcome">
+      <div class="row" style="justify-content:space-between"><div class="eyebrow">Hi ${name(me)} · ${i + 1} of ${total}</div><div class="dots">${dots}</div></div>
+      ${i === 0 ? `<p class="muted">A few questions before you begin. ${name(them)} answers too, and BoonBoo uses both to suggest things to do together.</p>` : ""}
+      ${body}
+      <div class="row" style="justify-content:space-between;margin-top:16px">
+        ${i > 0 ? `<button class="btn ghost" data-step="${i - 1}">← Back</button>` : `<button class="btn ghost" data-action="welcome-skip">Skip for now</button>`}
+        ${i < total - 1 ? `<button class="btn" data-step="${i + 1}">Next →</button>` : `<button class="btn" data-action="welcome-done">Done 💗</button>`}
+      </div>
+    </section>`;
+  };
+
+  /* ---------------- AI insights & couple tasks ---------------- */
+  const aiData = () => { try { return S.ai ? JSON.parse(S.ai) : null; } catch { return null; } };
+  let aiBusy = false, aiError = "";
+  function starterTasks() {
+    const want = [...new Set([...feelSet("a"), ...feelSet("b")])];
+    const keys = [...want, "ask", "time", "words"].filter((k, i, a) => a.indexOf(k) === i).slice(0, 3);
+    return keys.map((k) => STARTER_TASKS[k]);
+  }
+  function taskList(tasks, live) {
+    return `<ul class="tasks">${tasks.map((t, i) => {
+      const done = live && S.aiDone[i];
+      return `<li class="${done ? "done" : ""}">${live ? `<button class="tick" data-task="${i}" aria-label="Mark done">${done ? "✓" : ""}</button>` : `<span class="tick ghosty">✦</span>`}
+        <div><strong>${esc(t.title)}</strong> <span class="when">${esc(t.when)}</span><br><span class="muted">${esc(t.why)}</span></div></li>`;
+    }).join("")}</ul>`;
+  }
+  function insightsCard() {
+    const me = viewer(), them = other(me), ai = aiData();
+    const bothDone = S.about.a.done && S.about.b.done;
+    const btn = (label) => `<button class="btn ${ai ? "ghost sm" : ""}" data-action="get-insights" ${aiBusy ? "disabled" : ""}>${aiBusy ? "Thinking… ✨" : label}</button>`;
+    if (ai) {
+      return `<div class="card love">
+        <div class="eyebrow">✨ Couple tasks for you two</div>
+        <p>${esc(ai.summary)}</p>
+        ${taskList(ai.tasks.slice(0, S.aiDone.length), true)}
+        ${ai.care_note ? `<div class="received">${esc(ai.care_note)}</div>` : ""}
+        ${aiError ? `<p class="err">${esc(aiError)}</p>` : ""}
+        <div class="row" style="justify-content:space-between;margin-top:10px"><a href="#us" class="muted" style="font-size:14px">Full insights in Us →</a>${btn("Refresh")}</div>
+      </div>`;
+    }
+    const lead = !S.about[me].done ? `<p class="muted">Answer a few questions and BoonBoo will suggest things to do together.</p><button class="btn" data-action="welcome-open">Answer the questions</button>`
+      : !bothDone ? `<p class="muted">Waiting for ${name(them)} to answer the welcome questions. You can still ask now, but it's better with both.</p>${btn("Suggest couple tasks")}`
+      : `<p class="muted">You've both answered. Let BoonBoo read them and suggest a few things to do together.</p>${btn("Suggest couple tasks")}`;
+    return `<div class="card love"><div class="eyebrow">✨ Couple tasks</div>${lead}
+      ${aiError ? `<p class="err">${esc(aiError)}</p>` : ""}
+      ${S.about[me].done ? `<h3 style="margin-top:16px">Starter ideas</h3>${taskList(starterTasks(), false)}` : ""}</div>`;
+  }
 
   views.settings = () => {
     const synced = ["online", "saving", "offline"].includes(Sync.mode);
@@ -560,6 +662,9 @@
         <button class="btn ghost sm danger" data-action="wipe">Erase everything</button>
       </div>
     </div>
+    <div class="card" style="margin-top:16px"><h3>Welcome questions</h3>
+      <p class="muted">Change your answers any time; new couple tasks use the latest ones.</p>
+      <button class="btn ghost sm" data-action="welcome-open">Edit my answers</button></div>
     <div class="card" style="margin-top:16px"><h3>Our gentle rules</h3>
       <ul class="ritual">
         <li>Listen first, then respond.</li>
@@ -607,14 +712,48 @@
       document.getElementById("view").innerHTML = connectView();
       return;
     }
+    if (needsWelcome() && !welcomeSkipped) {
+      document.getElementById("view").innerHTML = views.welcome();
+      document.getElementById("tabs").innerHTML = "";
+      document.querySelector(".gear").hidden = true;
+      document.body.classList.add("compact");
+      return;
+    }
     document.getElementById("view").innerHTML = views[route()]();
     renderNav();
     if (scrollTop) window.scrollTo({ top: 0 });
   }
-  const refreshLive = () => renderNav();
+  const refreshLive = () => { if (!(needsWelcome() && !welcomeSkipped)) renderNav(); };
+  let welcomeSkipped = (() => { try { return sessionStorage.getItem("boonboo-skip") === "1"; } catch { return false; } })();
 
   /* ---------------- actions ---------------- */
+  async function getInsights() {
+    if (aiBusy) return;
+    if (Sync.mode === "local") { aiError = "AI suggestions need both phones connected with your couple code."; return render(); }
+    aiBusy = true; aiError = ""; render();
+    try {
+      await Sync.push();
+      const r = await Sync.api("insights", { method: "POST", body: "{}" });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        aiError = data.code === "ai-off" ? "AI suggestions aren't switched on yet, so here are some starter ideas." : (data.error || "Something went wrong. Try again later.");
+      } else {
+        S.ai = JSON.stringify({ ...data.insights, at: data.at });
+        S.aiDone = arr(6, false);
+        save(); confetti(50);
+      }
+    } catch { aiError = "Couldn't reach BoonBoo. Check your internet."; }
+    aiBusy = false; render();
+  }
+
   const actions = {
+    "get-insights"() { getInsights(); },
+    "welcome-open"() { welcomeStep = 0; welcomeSkipped = false; S.about[viewer()].done = false; save(); render(true); },
+    "welcome-skip"() { welcomeSkipped = true; try { sessionStorage.setItem("boonboo-skip", "1"); } catch { /* ignore */ } render(true); },
+    "welcome-done"() {
+      S.about[viewer()].done = true; save(); welcomeStep = 0; location.hash = "#dashboard"; render(true); confetti(60);
+      toast("Thank you 💗 Your answers help BoonBoo suggest things to do together.");
+    },
     start() { S.startDate = today(); save(); render(); confetti(); toast("Your month begins. Write your first note on Sunday 💌"); },
     "new-month"() {
       if (!confirm("Start a new month? This month's notes and goals are saved to your history and you both start fresh.")) return;
@@ -641,7 +780,7 @@
   };
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-action],[data-week],[data-set],[data-go],[data-me],[data-viewer],[data-idea]");
+    const t = e.target.closest("[data-action],[data-week],[data-set],[data-go],[data-me],[data-viewer],[data-idea],[data-step],[data-feel],[data-task]");
     if (!t) return;
     const d = t.dataset;
     if (d.action) return actions[d.action]?.();
@@ -650,6 +789,9 @@
     if (d.week) { weekPick = Number(d.week); render(); return; }
     if (d.viewer) { localViewer = d.viewer; try { localStorage.setItem("boonboo-viewer", d.viewer); } catch { /* ignore */ } render(); return; }
     if (d.set) { set(d.set, get(d.set) === d.val ? "" : d.val); save(); render(); if (get(d.set) === "yes") confetti(60); return; }
+    if (d.step) { welcomeStep = Number(d.step); render(); document.querySelector(".welcome textarea")?.focus(); return; }
+    if (d.feel) { const set = feelSet(viewer()); set.has(d.feel) ? set.delete(d.feel) : set.add(d.feel); S.about[viewer()].feel = [...set].join(","); save(); render(); return; }
+    if (d.task) { const i = Number(d.task); S.aiDone[i] = !S.aiDone[i]; save(); render(); if (S.aiDone[i]) confetti(30); return; }
     if (d.idea) { set(`month.${viewer()}.goal`, d.idea); save(); render(); return; }
   });
 
