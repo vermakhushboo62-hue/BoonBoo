@@ -542,6 +542,7 @@
     return `<ul class="feed">${out.join("")}</ul>`;
   }
 
+  let aboutEditing = false;
   views.us = () => {
     const me = viewer(), them = other(me);
     const weeks = arr(WEEKS, (w) => w).reverse().filter((w) => P.some((p) => noteHas(S.week[w][p])));
@@ -552,10 +553,18 @@
         </div></details>`).join("")
       : `<p class="muted">Your weekly notes collect here. Write the first one on the <a href="#week">Week</a> tab.</p>`;
     const ai = aiData();
-    const aboutBlock = P.some((p) => ABOUT_Q.some(([k]) => filled(S.about[p][k]))) ? `<div class="card" style="margin-top:16px"><div class="eyebrow">💬 What this means to us</div>
-      <div class="grid2">${P.map((p) => `<div class="note">${tag(p)}${ABOUT_Q.filter(([k]) => filled(S.about[p][k])).map(([k, q]) =>
+    const aboutRead = (p) => `${ABOUT_Q.filter(([k]) => filled(S.about[p][k])).map(([k, q]) =>
         `<p><strong>${aboutLabel(q, name(other(p)))}</strong><br>${esc(S.about[p][k])}</p>`).join("")}
-        ${feelSet(p).size ? `<p><strong>Feels most loved through</strong><br>${FEEL.filter(([k]) => feelSet(p).has(k)).map(([, l]) => l).join(", ")}</p>` : ""}</div>`).join("")}</div></div>` : "";
+        ${feelSet(p).size ? `<p><strong>Feels most loved through</strong><br>${FEEL.filter(([k]) => feelSet(p).has(k)).map(([, l]) => l).join(", ")}</p>` : ""}
+        ${!ABOUT_Q.some(([k]) => filled(S.about[p][k])) && !feelSet(p).size ? `<p class="muted">Not answered yet.</p>` : ""}`;
+    const aboutEdit = (p) => `${ABOUT_Q.map(([k, q, ph]) => field(`about.${p}.${k}`, aboutLabel(q, name(other(p))), { area: true, ph })).join("")}
+        <div class="fld"><span>How do you most feel loved?</span>
+          <div class="feel">${FEEL.map(([k, l]) => `<button class="chip ${feelSet(p).has(k) ? "on" : ""}" data-feel="${k}">${l}</button>`).join("")}</div></div>
+        <button class="btn sm" data-about-edit="0">Done ✓</button>`;
+    const aboutBlock = `<div class="card" style="margin-top:16px"><div class="eyebrow">💬 What this means to us</div>
+      <div class="grid2">${[me, other(me)].map((p) => `<div class="note">
+        <div class="row" style="justify-content:space-between">${tag(p)}${p === me && !aboutEditing ? `<button class="btn ghost sm" data-about-edit="1">✏️ Edit</button>` : ""}</div>
+        ${p === me && aboutEditing ? aboutEdit(p) : aboutRead(p)}</div>`).join("")}</div></div>`;
     const aiBlock = ai ? `<div class="card" style="margin-top:16px"><div class="eyebrow">✨ What BoonBoo sees</div><p>${esc(ai.summary)}</p>
       <h3>Working well</h3><ul class="ritual">${ai.strengths.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
       <h3>Growing together</h3><ul class="ritual">${ai.growth.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
@@ -780,7 +789,7 @@
   };
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-action],[data-week],[data-set],[data-go],[data-me],[data-viewer],[data-idea],[data-step],[data-feel],[data-task]");
+    const t = e.target.closest("[data-action],[data-week],[data-set],[data-go],[data-me],[data-viewer],[data-idea],[data-step],[data-feel],[data-task],[data-about-edit]");
     if (!t) return;
     const d = t.dataset;
     if (d.action) return actions[d.action]?.();
@@ -790,6 +799,7 @@
     if (d.viewer) { localViewer = d.viewer; try { localStorage.setItem("boonboo-viewer", d.viewer); } catch { /* ignore */ } render(); return; }
     if (d.set) { set(d.set, get(d.set) === d.val ? "" : d.val); save(); render(); if (get(d.set) === "yes") confetti(60); return; }
     if (d.step) { welcomeStep = Number(d.step); render(); document.querySelector(".welcome textarea")?.focus(); return; }
+    if (d.aboutEdit) { aboutEditing = d.aboutEdit === "1"; render(); if (aboutEditing) document.querySelector('[data-bind^="about."]')?.focus(); else toast("Saved 💗"); return; }
     if (d.feel) { const set = feelSet(viewer()); set.has(d.feel) ? set.delete(d.feel) : set.add(d.feel); S.about[viewer()].feel = [...set].join(","); save(); render(); return; }
     if (d.task) { const i = Number(d.task); S.aiDone[i] = !S.aiDone[i]; save(); render(); if (S.aiDone[i]) confetti(30); return; }
     if (d.idea) { set(`month.${viewer()}.goal`, d.idea); save(); render(); return; }
